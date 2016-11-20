@@ -5,3 +5,4 @@
 /resources/public/js/out
 *.iml
 *.xml
+.DS_Store
