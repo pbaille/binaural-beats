@@ -3,3 +3,5 @@
 /.nrepl-port
 /figwheel_server.log
 /resources/public/js/out
+*.iml
+*.xml
