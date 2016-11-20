@@ -7,7 +7,7 @@
 - envelope edition
 - pink noise layer
 - live play
-- export WAV
+- export WAV (if your browsers supports offlineAudioContext)
 
 ## Dev
 
