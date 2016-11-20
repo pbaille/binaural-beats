@@ -1,6 +1,7 @@
 (ns binaural-beats.spline-editor
   (:require-macros [reagent.ratom :refer [reaction]])
   (:require [reagent.core :as r :refer [atom]]
+            [binaural-beats.utils :as u]
             cljsjs.d3))
 
 (def d3 js/d3)
@@ -26,9 +27,9 @@
 (defn keydown [{:keys [points state on-done]}]
   (when-let [i (:selected @state)]
     (condp = (.. d3 -event -keyCode)
-      8 (swap! points rem-idx i) ;delete pressed
-      nil)
-    (on-done)))
+      8 (do (swap! points rem-idx i)
+            (on-done)) ;delete pressed
+      nil)))
 
 (defn mousemove [{:keys [points state svg width height on-done]}]
   (when (and (:dragged @state) (:selected @state))
@@ -61,28 +62,43 @@
            :dragged true)
     (on-done)))
 
-(defn redraw [this state]
-  (println "redraw")
-  (let [{:keys [points width]} (r/props this)
+(defn redraw [this state scaled-points last-mousedown]
+
+  (let [{:keys [width]} (r/props this)
+
+        points scaled-points
+
         svg (.. d3
                 (select (r/dom-node this))
                 (select "svg"))
+
         circles (.. svg
                     (selectAll "circle")
                     (data (js> (map (juxt :x :y) @points)) identity))
+
         circle-mouse-down (fn [d idx]
                             (swap! state
                                    assoc
                                    :selected idx
                                    :dragged true)
-                            (redraw this state))
+                            (reset! last-mousedown (u/now))
+                            (redraw this state points last-mousedown))
+
+        circle-mouseup (fn [d i]
+                         (when (< (- (u/now) @last-mousedown) 150)
+                           (swap! points rem-idx i)
+                           (swap! state assoc :selected nil :dragged nil)
+                           (redraw this state points last-mousedown)))
+
         path-datum (js> (map (juxt :x :y)
                              (cons {:x 0 :y (-> @points first :y)}
                                    (conj (vec @points)
                                          {:x width :y (-> @points last :y)}))))
+
         circle-selected? (fn [[x y]]
                            (= {:x x :y y}
                               (get-in @state [:points (:selected @state)])))]
+
     (.. svg
         (select "path")
         (datum path-datum)
@@ -91,7 +107,8 @@
 
     (.. circles
         (classed "selected" circle-selected?)
-        (on "mousedown" circle-mouse-down))
+        (on "mousedown" circle-mouse-down)
+        (on "mouseup" circle-mouseup))
 
     (.. circles
         enter
@@ -107,8 +124,17 @@
       (.preventDefault e)
       (.stopPropagation e))))
 
-(defn init [this state]
-  (let [{:keys [width height points]} (r/props this)
+(defn init [this state scaled-points]
+
+  (.. d3
+      (select (r/dom-node this))
+      (select "svg")
+      remove)
+
+  (let [{:keys [width height]} (r/props this)
+        points scaled-points
+        last-mousedown (atom (u/now))
+        redraw #(redraw this state points last-mousedown)
         svg (.. d3
                 (select (r/dom-node this))
                 (append "svg")
@@ -124,7 +150,9 @@
         (on "mousedown" #(mousedown {:svg svg
                                      :points points
                                      :state state
-                                     :on-done (fn [] (redraw this state))})))
+                                     :on-done (fn []
+                                                (reset! last-mousedown (u/now))
+                                                (redraw))})))
 
     (.. svg
         (append "path")
@@ -135,24 +163,37 @@
         (attr "class" "line"))
 
     (.. d3
-        (select js/window)
+        (select (r/dom-node this))
         (on "mousemove" #(mousemove {:svg svg
                                      :points points
                                      :width width
                                      :height height
                                      :state state
-                                     :on-done (fn [] (redraw this state))}))
-        (on "mouseup" #(swap! state assoc :dragged nil))
-        (on "keydown" #(keydown {:points points
-                                 :state state
-                                 :on-done (fn [] (redraw this state))})))
+                                     :on-done redraw}))
+        (on "mouseup" #(swap! state assoc :dragged nil :selected nil)))
 
-    (redraw this state)))
+    (redraw)))
 
-(defn spline-editor [{:keys [points width height]}]
+(defn points-viewer [p sp]
+  [:div.points
+   [:div "scaled" (pr-str @sp)]
+   [:div "points" (pr-str @p)]])
+
+(defn spline-editor [_]
   (let [state (atom {:dragged nil
-                     :selected 0})]
+                     :selected 0})
+        scaled-points (fn [{:keys [points width height]
+                            {[minx maxx] :x [miny maxy] :y} :ranges}]
+                        (r/wrap (mapv (fn [{:keys [x y]}]
+                                        {:x (u/scale-range x minx maxx 0 width)
+                                         :y (u/scale-range y maxy miny 0 height)})
+                                      @points)
+                                #(reset! points
+                                         (mapv (fn [{:keys [x y]}]
+                                                 {:x (u/scale-range x 0 width minx maxx)
+                                                  :y (u/scale-range y 0 height maxy miny)})
+                                               %))))]
     (r/create-class
-      {:reagent-render
-       (fn [] [:div])
-       :component-did-mount #(init % state)})))
+      {:reagent-render (fn [] [:div])
+       :component-did-update #(init % state (scaled-points (r/props %)))
+       :component-did-mount #(init % state (scaled-points (r/props %)))})))
