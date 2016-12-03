@@ -1,201 +1,132 @@
 (ns binaural-beats.core
   (:require-macros [reagent.ratom :refer [reaction]])
   (:require [reagent.core :as r :refer [atom]]
-            [cljs-bach.synthesis :as s]
-            [binaural-beats.spline-editor :refer [spline-editor]]
+            [binaural-beats.audio :as audio]
+            [binaural-beats.spline-editor :as se]
             [binaural-beats.utils :as u :refer [tval]]
+            [binaural-beats.colors :refer [palettes]]
             [cljs.pprint :refer [pprint]]))
 
 (enable-console-print!)
 
-(defonce state
-         (atom {:text "Hello Binaural"
-                :duration 2
-                :fq 200
-                :bb-gain 0.2
-                :pink-gain 0.0}))
+(def state
+  (atom
+    {:name "BinBits"
+     :assets {}
+     :duration 10
+     :max-duration 10000
+     :duration-step 1
+     :tracks
+     [{:type :binaural
+       :delta [[0 4]]
+       :fq [[0 100]]
+       :gain [[0 0.5]]}
+      {:type :pink
+       :gain [[0 0.1]]}]
 
-(comment
+     :tracks-settings
+     [{:delta
+       {:range [0 12]
+        :style (se/simple-styles "#F4B5BD" "#FD6467" "#FAEFD1")
+        :bounds [0 200]
+        :step 1}
 
-  (defonce context (s/audio-context))
+       :fq
+       {:range [60 400]
+        :style (se/simple-styles "#E1AF00" "#EBCC2A" "#f3f3f3")
+        :bounds [0 10000]
+        :step 1}
 
-  (do
-    (-> (s/connect->
-          (pink-noise)
-          (s/gain 0.2)
-          s/destination)
-        (s/run-with context (s/current-time context) 3))
+       :gain
+       {:range [0 1]
+        :style (se/simple-styles "#24281A" "#FD6467" "#D5D5D3")
+        :bounds [0 1]
+        :step 0.01}
 
-    (-> (s/connect->
-          (s/sine 200)
-          (s/gain 0.1)
-          s/destination)
-        (s/run-with context (s/current-time context) 2))
-    (-> (s/connect->
-          (s/sine 204)
-          (s/gain 0.1)
-          s/destination)
-        (s/run-with context (s/current-time context) 2))))
+       :selected :delta
+       :width 800
+       :height 200}
+      {:ranges {:gain [0 1]}}]}))
 
-(defn osc-line
-  [init & corners]
-  (fn [context at duration]
-    (let [osc (.createOscillator context)]
-      (.. osc -frequency (setValueAtTime init at))
-      (aset osc "type" "sine")
-      (.start osc at)
-      (.stop osc (+ duration at))
-      (mapv (fn [[x y]] (.. osc -frequency (linearRampToValueAtTime y x))) corners)
-      (s/source osc))))
-
-(defn pink-noise []
-  (fn [context at duration]
-    (let [pinky (.createPinkNoise context)]
-      (.start pinky at)
-      (.stop pinky (+ duration at))
-      (s/source pinky))))
-
-(defn play-pink [{:keys [ctx gain duration]}]
-  (-> (s/connect->
-        (pink-noise)
-        (s/gain gain)
-        s/destination)
-      (s/run-with ctx (s/current-time ctx) duration)))
-
-(defn binaural-fq-seqs [fqs deltas duration]
-  (let [main-seq (u/interp-seq (u/interpolator fqs) 0 duration 0.1)
-        delta-interp (u/interpolator deltas)]
-    {:left (mapv (fn [[x y]] [x (+ y (/ (delta-interp x) 2.0))]) main-seq)
-     :right (mapv (fn [[x y]] [x (- y (/ (delta-interp x) 2.0))]) main-seq)}))
-
-(defn envelope*
-  "Build an envelope out of [segment-duration final-level] coordinates."
-  [corners]
-  (fn [context at duration]
-    (let [audio-node (.createGain context)]
-      (.. audio-node -gain (setValueAtTime 0 at))
-      (mapv (fn [[x y]] (.. audio-node -gain (linearRampToValueAtTime y x))) corners)
-      (s/subgraph audio-node))))
-
-(defn play-binaural [{:keys [ctx fqs deltas envelope duration]}]
-  (let [{:keys [left right]} (binaural-fq-seqs fqs deltas duration)
-        ct (s/current-time ctx)]
-
-    (-> (s/connect->
-          (apply osc-line (ffirst left) left)
-          (envelope* envelope)
-          (s/stereo-panner -1)
-          s/destination)
-        (s/run-with ctx ct duration))
-
-    (-> (s/connect->
-          (apply osc-line (ffirst right) right)
-          (envelope* envelope)
-          (s/stereo-panner 1)
-          s/destination)
-        (s/run-with ctx ct duration))))
-
-(defn close-ctx [ctx]
-  (.then (.close @ctx) (fn [] (reset! ctx nil))))
-
-(defn play [{:keys [ctx deltas fqs duration envelope]}]
-  (if-not @ctx (reset! ctx (s/audio-context)))
-  (play-binaural
-    {:fqs fqs
-     :deltas deltas
-     :envelope (map (juxt :x :y) envelope)
-     :duration duration
-     :ctx @ctx})
-  (play-pink
-    {:gain (:pink-gain @state)
-     :duration duration
-     :ctx @ctx}))
-
-(comment
-  (pprint (binaural-fq-seqs [{:x 0 :y 200} {:x 2 :y 100} {:x 3 :y 150}]
-                            [{:x 0 :y 1} {:x 2 :y 7} {:x 3 :y 4}]
-                            3)))
-
-(defn export-buffer [{:keys [duration deltas fqs envelope] :as opts}]
-  (let [offline (js/OfflineAudioContext. 2 (* duration 44100) 44100)]
-    (play (assoc opts :ctx (atom offline)))
-    (set! (.-oncomplete offline)
-          (fn [e] (u/log (.-renderedBuffer e))
-            (let [buffer (.-renderedBuffer e)
-                  worker (js/Worker. "/js/recorderWorker.js")]
-              (.postMessage worker
-                            (clj->js
-                              {:command "init"
-                               :config {:sampleRate 44100}}))
-              (set! (.-onmessage worker)
-                    (fn [e]
-                      (u/log (.-data e))
-                      (let [url (js/window.URL.createObjectURL (.-data e))
-                            a (.createElement js/document "a")]
-                        (.appendChild js/document.body a)
-                        (aset a "style" "display: none")
-                        (aset a "href" url)
-                        (aset a "download" "test.wav")
-                        (.click a)
-                        (js/window.URL.revokeObjectURL url))))
-              (.postMessage worker
-                            (clj->js
-                              {:command "record"
-                               :buffer [(.getChannelData buffer 0)
-                                        (.getChannelData buffer 1)]}))
-              (.postMessage worker
-                            (clj->js
-                              {:command "exportWAV"
-                               :type "audio/wav"})))))
-    (.startRendering offline)))
+(defn binaural-editor [{:keys [track settings]}]
+  (let [selected (r/cursor settings [:selected])
+        width (reaction (:width @settings))
+        height (reaction (:height @settings))
+        selected-settings (reaction (get @settings @selected))
+        style (reaction (:style @selected-settings))
+        ranges (u/rwrap
+                 (fn []
+                   {:x [0 (:duration @state)] :y (:range @selected-settings)})
+                 {settings (fn [x {y :y}]
+                             (assoc-in x [@selected :range] y))
+                  state (fn [x {[_ maxx] :x}]
+                          (assoc x :duration maxx))})]
+    (fn []
+      [:div.multi-spline
+       [:select {:value (name @selected)
+                 :on-change #(reset! selected (keyword (u/tval %)))}
+        (for [s [:delta :fq :gain]]
+          [:option {:key s :value (name s)} (name s)])]
+       (doall
+         (let [[min max] (:y @ranges)
+               [dwn up] (:bounds @selected-settings)
+               step (:step @selected-settings)]
+           [:span
+            [:input {:type "number"
+                     :style {:width :40px}
+                     :value min
+                     :min dwn
+                     :max max
+                     :step step
+                     :on-change #(swap! ranges assoc-in [:y 0] (js/parseFloat (tval %)))}]
+            [:input {:type "number"
+                     :style {:width :40px}
+                     :min min
+                     :max up
+                     :step step
+                     :value max
+                     :on-change #(swap! ranges assoc-in [:y 1] (js/parseFloat (tval %)))}]]))
+       [se/spline-editor
+        {:points (r/cursor track [@selected])
+         :style @style
+         :ranges @ranges
+         :height @height
+         :width @width}]])))
 
 (defn main []
-  (let [delta-pts (atom [{:x 0 :y 1} {:x 2 :y 7} {:x 3 :y 4}])
-        fq-pts (atom [{:x 0 :y 200} {:x 2 :y 100} {:x 3 :y 150}])
-        envelope (atom [{:x 0 :y 0.5} {:x 1 :y 0.7} {:x 2 :y 0.3}])
-        duration (atom 3)
-        current-spline (atom :delta)
+  (let [delta-pts (atom [{:x 1 :y 4}])
+        fq-pts (atom [{:x 1 :y 90}])
+        envelope (atom [{:x 1 :y 0.5}])
+        duration (atom 10)
         ctx (atom nil)]
     (fn []
       [:div
        [:h1 "Binaural Beats Generator"]
 
-       [:select {:value (name @current-spline)
-                 :on-change #(reset! current-spline (keyword (tval %)))}
-        (for [s [:delta :freq :envelope]]
-          [:option {:key s :value (name s)} (name s)])]
-
-       (condp = @current-spline
-         :delta [spline-editor {:points delta-pts
-                                :width 800 :height 200
-                                :ranges {:x [0 @duration] :y [0 12]}}]
-         :freq [spline-editor {:points fq-pts
-                               :width 800 :height 200
-                               :ranges {:x [0 @duration] :y [0 400]}}]
-         :envelope [spline-editor {:points envelope
-                                   :width 800 :height 200
-                                   :ranges {:x [0 @duration] :y [0 1]}}])
+       [binaural-editor
+        {:track (r/cursor state [:tracks 0])
+         :settings (r/cursor state [:tracks-settings 0])}]
 
        [:span "duration: "]
        [:input {:type "number"
                 :style {:width :40px}
-                :value @duration
-                :on-change #(reset! duration (tval %))}]
+                :value (:duration @state)
+                :on-change #(swap! state assoc :duration (int (tval %)))}]
 
        [:div
         [:button {:on-click #(if @ctx
-                               (close-ctx ctx)
-                               (play {:ctx ctx
-                                      :deltas @delta-pts
-                                      :fqs @fq-pts
-                                      :duration @duration
-                                      :envelope @envelope}))}
+                               (audio/close-ctx ctx)
+                               (audio/play {:ctx ctx
+                                            :deltas @delta-pts
+                                            :fqs @fq-pts
+                                            :duration @duration
+                                            :envelope @envelope}))}
          "play/stop"]
-        [:button {:on-click #(export-buffer
-                              {:deltas @delta-pts
-                               :fqs @fq-pts
-                               :duration @duration
-                               :envelope @envelope})}
+        [:button {:on-click #(audio/export-buffer
+                               {:deltas @delta-pts
+                                :fqs @fq-pts
+                                :duration @duration
+                                :envelope @envelope})}
          "export"]]])))
 
 (r/render-component [main]
