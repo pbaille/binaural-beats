@@ -37,8 +37,8 @@
     (let [[real imag] wavetable
           osc (.createOscillator context)
           fmod (tlmod {:interp-type (or interp-type :exp)
-                        :path ["frequency"]
-                        :tl fqs})]
+                       :path ["frequency"]
+                       :tl fqs})]
       (.setPeriodicWave
         osc
         (.createPeriodicWave
@@ -61,6 +61,13 @@
   (defonce context (s/audio-context))
 
   (.-context (.createOscillator context))
+
+  (-> (s/connect->
+        (s/sine 200)
+        (s/gain 0.5) #_(trem {:f 4})
+        (pans [[0 -1] [1 2][2 -1] [3 2]])
+        s/destination)
+      (s/run-with context (+ 2 (s/current-time context)) 3))
 
   (-> (s/connect->
         (custom-osc {:wavetable [[0 0.5] [0 0]]
@@ -89,6 +96,15 @@
       (mapv (fn [[x y]] (.. audio-node -gain (linearRampToValueAtTime y (+ at x)))) corners)
       (s/subgraph audio-node))))
 
+(defn pans
+  "Build an envelope out of [segment-duration final-level] coordinates."
+  [corners]
+  (fn [context at duration]
+    (let [audio-node (.createStereoPanner context)]
+      (.. audio-node -pan (setValueAtTime 0 at))
+      (mapv (fn [[x y]] (.. audio-node -pan (linearRampToValueAtTime (dec (* 2 y)) (+ at x)))) corners)
+      (s/subgraph audio-node))))
+
 (defn pink-noise []
   (fn [context at duration]
     (let [pinky (.createPinkNoise context)]
@@ -96,16 +112,34 @@
       (.stop pinky (+ duration at))
       (s/source pinky))))
 
-(defn play-pink [{:keys [ctx gain duration]}]
+(defn play-pink [{:keys [ctx at duration]
+                  {:keys [gain pan]} :track}]
   (-> (s/connect->
         (pink-noise)
-        (s/gain gain)
+        (envelop gain)
+        (pans pan)
         s/destination)
-      (s/run-with ctx (s/current-time ctx) duration)))
+      (s/run-with ctx at duration)))
+
+(defn brown-noise []
+  (fn [context at duration]
+    (let [browny (.createBrownNoise context)]
+      (.start browny at)
+      (.stop browny (+ duration at))
+      (s/source browny))))
+
+(defn play-brown [{:keys [ctx at duration]
+                  {:keys [gain pan]} :track}]
+  (-> (s/connect->
+        (pink-noise)
+        (envelop gain)
+        (pans pan)
+        s/destination)
+      (s/run-with ctx at duration)))
 
 (defn synth
   "return a seq of source nodes"
-  [{:keys [init fqs harmonics pan envelope osc-types]}]
+  [{:keys [init fqs harmonics pan gain oscs]}]
   (let [normalize #(let [t (reduce + (vals %))]
                      (mapv (fn [[x y]] [x (/ y t)]) %))
         map-seconds (fn [f coll] (map (fn [[x y]] [x (f y)]) coll))
@@ -118,12 +152,28 @@
                           (osc-line {:type osc-type
                                      :init (* n init)
                                      :points (map-seconds (partial * n) fqs)})
-                          (envelop (map-seconds (partial * g1 g2) envelope))
+                          (envelop (map-seconds (partial * g1 g2) gain))
                           (s/stereo-panner pan)
                           s/destination))
                       (normalize harmonics)))
-              (normalize osc-types)))]
+              (normalize oscs)))]
     r))
+
+(comment
+
+  (def ctx (s/audio-context))
+
+  (-> (synth {:init 100
+              :fqs [[0 100]]
+              :gain [[0 1]]
+              :harmonics {1 1 2 0.5 3 0.1 4 0.1 5 0.1}
+              :oscs {"sine" 1
+                     "square" 0.001
+                     "triangle" 0.1
+                     "sawtooth" 0.001
+                     }
+              :pan 0.5})
+      (run-all-with ctx (+ 2 (s/current-time ctx))  3)))
 
 (defn run-all-with [xs ctx ct duration]
   (mapv #(s/run-with % ctx ct duration) xs))
@@ -152,49 +202,63 @@
           s/destination)
         (s/run-with ctx ct duration))))
 
-(defn play-binaural [{:keys [ctx fqs deltas envelope duration]}]
-  (let [{:keys [left right]} (binaural-fq-seqs fqs deltas duration)
-        ct (s/current-time ctx)]
+(defn play-binaural [{ctx :ctx
+                      {:keys [fq delta gain harmonics oscs]} :track
+                      dur :duration
+                      at :at}]
+  (let [{:keys [left right]} (binaural-fq-seqs fq delta dur)]
     (-> (synth {:init (ffirst left)
                 :fqs left
-                :harmonics {1 1 2 0.5 3 0.2 4 2}
-                :osc-types {;"sine" 1 "square" 0.02 "triangle" 0.5 "sawtooth" 0.5
-                            }
+                :harmonics (into {} (map-indexed (fn [i x] [(inc i) x]) harmonics))
+                :oscs {"sine" (get oscs 0)
+                       "square" (get oscs 1)
+                       "triangle" (get oscs 2)
+                       "sawtooth" (get oscs 3)
+                       }
                 :pan -1
-                :envelope envelope})
-        (run-all-with ctx ct duration))
+                :gain gain})
+        (run-all-with ctx at dur))
 
-    #_(mapv #(s/run-with % ctx ct duration)
-            (harmonized-line {:init (ffirst right)
-                              :points right
-                              :harmonics {1 1 2 0.5 3 0.2 4 2}
-                              :osc-types {"sine" 1
-                                          "square" 0.02
-                                          ;"triangle" 0.5
-                                          ;"sawtooth" 0.5
-                                          }
-                              :pan 1
-                              :envelope envelope}))))
+    (-> (synth {:init (ffirst right)
+                :fqs right
+                :harmonics (into {} (map-indexed (fn [i x] [(inc i) x]) harmonics))
+                :oscs {"sine" (get oscs 0)
+                       "square" (get oscs 1)
+                       "triangle" (get oscs 2)
+                       "sawtooth" (get oscs 3)}
+                :pan 1
+                :gain gain})
+        (run-all-with ctx at dur))))
 
 (defn close-ctx [ctx]
   (.then (.close @ctx) (fn [] (reset! ctx nil))))
 
-(defn play [{:keys [ctx deltas fqs duration envelope]}]
-  (if-not @ctx (reset! ctx (s/audio-context)))
-  (play-binaural
-    {:fqs fqs
-     :deltas deltas
-     :envelope (map (juxt :x :y) envelope)
-     :duration duration
-     :ctx @ctx})
-  (play-pink
-    {:gain 0
-     :duration duration
-     :ctx @ctx}))
+(defn play-tracks [{:keys [ctx tracks decay duration]}]
+  (let [at (+ (or decay 2) (s/current-time ctx))]
+    (doseq [t tracks]
+      (condp = (:type t)
+        :binaural
+        (play-binaural
+          {:ctx ctx
+           :at at
+           :track t
+           :duration duration})
+        :pink
+        (play-pink
+          {:track t
+           :at at
+           :duration duration
+           :ctx ctx})
+        :brown
+        (play-pink
+          {:track t
+           :at at
+           :duration duration
+           :ctx ctx})))))
 
 (defn export-buffer [{:keys [duration] :as opts}]
   (let [offline (js/OfflineAudioContext. 2 (* duration 44100) 44100)]
-    (play (assoc opts :ctx (atom offline)))
+    (play-tracks (assoc opts :ctx offline))
     (set! (.-oncomplete offline)
           (fn [e] (u/log (.-renderedBuffer e))
             (let [buffer (.-renderedBuffer e)

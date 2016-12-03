@@ -1,6 +1,5 @@
 (ns binaural-beats.spline-editor
-  (:require-macros [reagent.ratom :refer [reaction]]
-                   [binaural-beats.macros :refer [attrs> styles>]])
+  (:require-macros [reagent.ratom :refer [reaction]])
   (:require [reagent.core :as r :refer [atom]]
             [binaural-beats.utils :as u :refer [d3 js>]
              ]

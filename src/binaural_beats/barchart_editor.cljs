@@ -35,12 +35,18 @@
   {:bars {:attrs {:fill "white"
                   :opacity "0.3"
                   :stroke "white"
-                  :stroke-width "3px"}
-          :margin 20}
+                  :stroke-width "2px"}
+          :margin 10}
    :svg {:styles {:background "pink"
                   :border "2px solid white"
-                  :border-radius "3px"}
+                  :border-radius :4px}
          :attrs {:class "barchart-svg"}}})
+
+(defn simple-styles [c1 c2]
+  {:bars {:attrs {:fill c1
+                  :stroke c2}}
+   :svg {:styles {:background c2
+                  :border (str "2px solid " c1)}}})
 
 ;; draw ---------------------------------------------------------------
 
@@ -126,11 +132,11 @@
               (upd opts))))))
 
 (defn barchart-editor [opts]
-  (r/create-class
-    {:reagent-render
-     (fn []
-       (println "render ")
-       [:div.barchart-editor-wrap])
-     :component-did-mount
-     #(upd (init (assoc opts :node (r/dom-node %))))}))
+  (let [refresh #(upd (init (assoc (r/props %) :node (r/dom-node %))))]
+    (r/create-class
+      {:reagent-render
+       (fn []
+         [:div.barchart-editor-wrap])
+       :component-did-update refresh
+       :component-did-mount refresh})))
 
