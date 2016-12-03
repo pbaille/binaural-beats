@@ -14,13 +14,20 @@
         37 (println "left")
         nil))))
 
-(defn mouse-upd [{:keys [svg height bar-width styles] :as opts}]
+(defn mouse-upd [{:keys [svg bar-width bar-margin bar-max-height] :as opts}]
   (let [[x y] (js->clj (.mouse d3 (.node svg)))]
     (assoc-in opts
               [:points (js/Math.floor (/ x bar-width))]
-              ((u/bounder 0 1) (/ (+ (- height y)
-                                     (get-in styles [:bars :margin]))
-                                  height)))))
+              ((u/bounder 0 1)
+                (/ (+ (- bar-max-height y)
+                      bar-margin)
+                   bar-max-height)))))
+
+(defn hover-tracker [{:keys [svg bar-width hover] :as opts}]
+  (when-let [[x y] (js->clj (.mouse d3 (.node svg)))]
+    (let [idx (js/Math.floor (/ x bar-width))]
+      (when-not (= idx @hover)
+        (reset! hover idx)))))
 
 ;; styles -------------------------------------------------------------
 
@@ -47,7 +54,8 @@
                 (append "svg")
                 (attr "width" width)
                 (attr "height" height)
-                (call #(u/a&s % (:svg styles))))]
+                (call #(u/a&s % (:svg styles))))
+        bar-margin (get-in styles [:bars :margin])]
     {:svg svg
      :g (.append svg "g")
      :styles styles
@@ -55,37 +63,45 @@
      :points @points
      :width width
      :height height
-     :bar-width (/ (- width (get-in styles [:bars :margin])) (count @points))
+     :bar-width (/ (- width bar-margin) (count @points))
+     :bar-margin bar-margin
+     :bar-max-height (- height (* 2 bar-margin))
      :dragged (atom false)
-     :selected (atom nil)
+     :hover (atom nil)
      :sync-fn (fn [{ps :points}]
-                (println "before sync: " @points)
-                (reset! points ps)
-                (println "after sync: " @points))}))
+                (reset! points ps))}))
 
-(defn upd [{:keys [g svg points width height bar-width dragged sync-fn styles] :as opts}]
+(defn upd [{:keys [g
+                   svg
+                   points
+                   height
+                   bar-width
+                   dragged
+                   sync-fn
+                   styles
+                   bar-margin
+                   bar-max-height
+                   hover]
+            :as opts}]
 
   (let [bars (.. g
                  (selectAll "rect")
-                 (data (js> (map-indexed vector points))))
-        bars-margin (get-in styles [:bars :margin])]
-
-    (.. bars
-        (attr "class" "update"))
+                 (data (js> (map-indexed vector points))))]
 
     (.. bars
         enter
         (append "rect")
-        (attr "class" "enter")
-        (attr "x" (fn [[i x]] (+ bars-margin (* bar-width i))))
+        (attr "x" (fn [[i x]] (+ bar-margin (* bar-width i))))
         (attr "y" height)
-        (attr "width" (- bar-width bars-margin))
+        (attr "width" (- bar-width bar-margin))
         (attr "fill" "grey")
         (call #(u/a&s % (:bars styles)))
 
         (merge bars)
-        (attr "height" (fn [[i x]] (* height x)))
-        (attr "y" (fn [[i x]] (+ bars-margin (- height (* height x))))))
+        (attr "height" (fn [[i x]] (* bar-max-height x)))
+        (attr "y" (fn [[i x]] (+ bar-margin (- bar-max-height (* bar-max-height x)))))
+        (transition 30)
+        (attr "opacity" (fn [_ i] (if (= i @hover) 0.6 0.2))))
 
     (.. bars exit remove)
 
@@ -99,9 +115,17 @@
               (reset! dragged false)
               (sync-fn opts)))
         (on "mousemove"
-            #(when @dragged (upd (mouse-upd opts)))))))
+            (fn []
+              (let [hover-changed? (hover-tracker opts)]
+                (cond
+                  @dragged (upd (mouse-upd opts))
+                  hover-changed? (upd opts)))))
+        (on "mouseout"
+            (fn []
+              (reset! hover nil)
+              (upd opts))))))
 
-(defn bc [opts]
+(defn barchart-editor [opts]
   (r/create-class
     {:reagent-render
      (fn []
@@ -110,7 +134,3 @@
      :component-did-mount
      #(upd (init (assoc opts :node (r/dom-node %))))}))
 
-(u/mount [bc {:width 800
-              :height 200
-              :points (r/atom [1 0.5 0.3 0.7 0.09 0.6 1])}]
-         "app")

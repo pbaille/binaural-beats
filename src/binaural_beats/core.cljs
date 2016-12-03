@@ -3,6 +3,7 @@
   (:require [reagent.core :as r :refer [atom]]
             [binaural-beats.audio :as audio]
             [binaural-beats.spline-editor :as se]
+            [binaural-beats.barchart-editor :as bce]
             [binaural-beats.utils :as u :refer [tval]]
             [binaural-beats.colors :refer [palettes]]
             [cljs.pprint :refer [pprint]]))
@@ -20,7 +21,8 @@
      [{:type :binaural
        :delta [[0 4]]
        :fq [[0 100]]
-       :gain [[0 0.5]]}
+       :gain [[0 0.5]]
+       :harmonics [1 0.5 0.3 0.1 0.05 0.03]}
       {:type :pink
        :gain [[0 0.1]]}]
 
@@ -60,38 +62,45 @@
                  {settings (fn [x {y :y}]
                              (assoc-in x [@selected :range] y))
                   state (fn [x {[_ maxx] :x}]
-                          (assoc x :duration maxx))})]
+                          (assoc x :duration maxx))})
+        spline-editor? (reaction (#{:delta :fq :gain} @selected))]
     (fn []
       [:div.multi-spline
        [:select {:value (name @selected)
                  :on-change #(reset! selected (keyword (u/tval %)))}
-        (for [s [:delta :fq :gain]]
+        (for [s [:delta :fq :gain :harmonics]]
           [:option {:key s :value (name s)} (name s)])]
-       (doall
-         (let [[min max] (:y @ranges)
-               [dwn up] (:bounds @selected-settings)
-               step (:step @selected-settings)]
-           [:span
-            [:input {:type "number"
-                     :style {:width :40px}
-                     :value min
-                     :min dwn
-                     :max max
-                     :step step
-                     :on-change #(swap! ranges assoc-in [:y 0] (js/parseFloat (tval %)))}]
-            [:input {:type "number"
-                     :style {:width :40px}
-                     :min min
-                     :max up
-                     :step step
-                     :value max
-                     :on-change #(swap! ranges assoc-in [:y 1] (js/parseFloat (tval %)))}]]))
-       [se/spline-editor
-        {:points (r/cursor track [@selected])
-         :style @style
-         :ranges @ranges
-         :height @height
-         :width @width}]])))
+       (when @spline-editor?
+         (doall
+           (let [[min max] (:y @ranges)
+                 [dwn up] (:bounds @selected-settings)
+                 step (:step @selected-settings)]
+             [:span
+              [:input {:type "number"
+                       :style {:width :40px}
+                       :value min
+                       :min dwn
+                       :max max
+                       :step step
+                       :on-change #(swap! ranges assoc-in [:y 0] (js/parseFloat (tval %)))}]
+              [:input {:type "number"
+                       :style {:width :40px}
+                       :min min
+                       :max up
+                       :step step
+                       :value max
+                       :on-change #(swap! ranges assoc-in [:y 1] (js/parseFloat (tval %)))}]])))
+       (if @spline-editor?
+         [se/spline-editor
+          {:points (r/cursor track [@selected])
+           :style @style
+           :ranges @ranges
+           :height @height
+           :width @width}]
+         [bce/barchart-editor
+          {:points (r/cursor track [@selected])
+           :height @height
+           :width @width}])])))
 
 (defn main []
   (let [delta-pts (atom [{:x 1 :y 4}])
