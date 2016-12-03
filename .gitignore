@@ -3,6 +3,7 @@
 /.nrepl-port
 /figwheel_server.log
 /resources/public/js/out
+/resources/public/js/dev
 *.iml
 *.xml
 .DS_Store

@@ -148,7 +148,7 @@
           [:option {:key s :value (name s)} (name s)])]
 
        [se/spline-editor
-        {:points (r/cursor trackacks  [@selected])
+        {:points (r/cursor track [@selected])
          :style @style
          :ranges @ranges
          :height @height
