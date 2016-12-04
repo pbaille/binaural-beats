@@ -65,7 +65,7 @@
   (-> (s/connect->
         (s/sine 200)
         (s/gain 0.5) #_(trem {:f 4})
-        (pans [[0 -1] [1 2][2 -1] [3 2]])
+        (pans [[0 -1] [1 2] [2 -1] [3 2]])
         s/destination)
       (s/run-with context (+ 2 (s/current-time context)) 3))
 
@@ -129,7 +129,7 @@
       (s/source browny))))
 
 (defn play-brown [{:keys [ctx at duration]
-                  {:keys [gain pan]} :track}]
+                   {:keys [gain pan]} :track}]
   (-> (s/connect->
         (pink-noise)
         (envelop gain)
@@ -159,9 +159,41 @@
               (normalize oscs)))]
     r))
 
+(def flat-eq-points
+  (map
+    (fn [x]
+      {:fq x
+       :gain 0
+       :q 1})
+    (take 11 (iterate (partial * 2) 24))))
+
+(defn eq [points]
+  (apply
+    s/connect->
+    (mapv
+      (fn [{:keys [fq gain q]}]
+        (fn [context at duration]
+          (s/subgraph
+            (doto (.createBiquadFilter context)
+              (-> .-frequency .-value (set! fq))
+              (-> .-gain .-value (set! gain))
+              (-> .-Q .-value (set! q))
+              (-> .-type (set! "peaking"))))))
+      points)))
+
 (comment
 
   (def ctx (s/audio-context))
+
+  (s/run-with
+    (s/connect->
+      (pink-noise)
+      (eq [{:fq 1000 :gain -10 :q 0.4}
+           {:fq 100 :gain 10 :q 1}])
+      s/destination)
+    ctx
+    (+ 2 (s/current-time ctx))
+    3)
 
   (-> (synth {:init 100
               :fqs [[0 100]]
@@ -173,7 +205,7 @@
                      "sawtooth" 0.001
                      }
               :pan 0.5})
-      (run-all-with ctx (+ 2 (s/current-time ctx))  3)))
+      (run-all-with ctx (+ 2 (s/current-time ctx)) 3)))
 
 (defn run-all-with [xs ctx ct duration]
   (mapv #(s/run-with % ctx ct duration) xs))
