@@ -1,11 +1,11 @@
 (ns binaural-beats.core
   (:require-macros [reagent.ratom :refer [reaction]])
   (:require [reagent.core :as r :refer [atom]]
-            [binaural-beats.audio :as audio]
-            [binaural-beats.spline-editor :as se]
-            [binaural-beats.barchart-editor :as bce]
-            [binaural-beats.utils :as u :refer [tval]]
-            [binaural-beats.colors :refer [palettes]]
+            [audio.core :as audio]
+            [editors.spline :as se]
+            [editors.barcharts :as bce]
+            [utils.core :as u :refer [tval]]
+            [utils.colors :refer [palettes]]
             [cljs.pprint :refer [pprint]]
             [cljs-bach.synthesis :as s]))
 

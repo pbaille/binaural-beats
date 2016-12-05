@@ -1,4 +1,4 @@
-(ns binaural-beats.utils
+(ns utils.core
   (:require [reagent.core :as r]
             cljsjs.d3))
 
@@ -181,3 +181,4 @@
     (p "(swap! b dec)")
     (swap! b dec)
     ))
+

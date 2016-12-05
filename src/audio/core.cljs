@@ -1,6 +1,6 @@
-(ns binaural-beats.audio
+(ns audio.core
   (:require [cljs-bach.synthesis :as s]
-            [binaural-beats.utils :as u]))
+            [utils.core :as u]))
 
 (defn tl
   "timeline"
@@ -185,6 +185,12 @@
 
   (def ctx (s/audio-context))
 
+  (-> (s/connect->
+        (pink-noise)
+        (s/gain 0.5)
+        s/destination)
+      (s/run-with ctx (+ 2 (s/current-time ctx)) 3))
+
   (s/run-with
     (s/connect->
       (pink-noise)
@@ -194,6 +200,10 @@
     ctx
     (+ 2 (s/current-time ctx))
     3)
+
+  (s/add
+    (s/sine 10)
+    (s/source (new js/ConstantSourceNode 1)))
 
   (-> (synth {:init 100
               :fqs [[0 100]]

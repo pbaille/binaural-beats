@@ -1,4 +1,4 @@
-(ns binaural-beats.colors)
+(ns utils.colors)
 
 (def wes-anderson
   {:bottlerocket ["#0C1707" "#550307" "#9B110E" "#4E2A1E" "#A42820" "#3F5151" "#5F5647"]

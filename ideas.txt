@@ -1,0 +1,8 @@
+render buffer on changes only
+
+wave panel with harmonics, eq and osc-types balance
+with time axis for defining changes over time
+
+global track time navigator
+
+play from specific location

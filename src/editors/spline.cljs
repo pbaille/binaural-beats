@@ -1,8 +1,7 @@
-(ns binaural-beats.spline-editor
+(ns editors.spline
   (:require-macros [reagent.ratom :refer [reaction]])
   (:require [reagent.core :as r :refer [atom]]
-            [binaural-beats.utils :as u :refer [d3 js>]
-             ]
+            [utils.core :as u :refer [d3 js>]]
             cljsjs.d3))
 
 ;; event handlers ---------------------------------------------------------

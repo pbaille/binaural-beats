@@ -1,8 +1,8 @@
-(ns binaural-beats.wave-shapper
+(ns audio.wave-shapper
   (:require-macros [reagent.ratom :refer [reaction run!]])
   (:require [reagent.core :as r]
-            [binaural-beats.audio :as audio]
-            [binaural-beats.spline-editor :refer [spline-editor]]
+            [audio.core :as audio]
+            [editors.spline :refer [spline-editor]]
             [cljs-bach.synthesis :as s]))
 
 (defonce ctx (s/audio-context))

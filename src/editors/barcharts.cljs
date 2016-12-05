@@ -1,5 +1,6 @@
-(ns binaural-beats.barchart-editor
-  (:require [binaural-beats.utils :refer [d3 js>] :as u]
+(ns editors.barcharts
+  (:require-macros [reagent.ratom :refer [reaction]])
+  (:require [utils.core :refer [d3 js>] :as u]
             [reagent.core :as r]))
 
 ;; handlers -------------------------------------------
@@ -140,3 +141,21 @@
        :component-did-update refresh
        :component-did-mount refresh})))
 
+(defn timed-barchart-editor [opts]
+  (let [selected (r/atom 0)
+        points (reaction (r/cursor (:points opts) [@selected 1]))]
+    (fn []
+      [:div.timed-barchart-editor-wrap
+       [barchart-editor
+        (assoc (:barchart opts) :points @points)]])))
+
+(comment
+  (u/mount
+    [timed-barchart-editor
+     {:points (r/atom [[0 [1 1 1 1 1]] [5 [0 0 0 0 0]]])
+      :duration 10
+      :barchart
+      {:styles (simple-styles "white" "pink")
+       :height 200
+       :width 800}}]
+    "app"))
