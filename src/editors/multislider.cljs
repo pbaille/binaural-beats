@@ -17,7 +17,7 @@
           (reset! hover idx)))))
 
 (defn keydown [{:keys [points selected] :as opts}]
-  (println (.. d3 -event -keyCode))
+  #_(println (.. d3 -event -keyCode))
   (let [c (count points)]
     (when-let [i @selected]
       (condp = (.. d3 -event -keyCode)
@@ -175,9 +175,6 @@
     s))
 
 (rum/defcs ms <
-  (rum/local 0 ::selected)
-  (rum/local false ::hover)
-  (rum/local false ::dragged)
   {:will-mount initial-state
    :did-mount initial-setup
    :did-update (fn [s]
