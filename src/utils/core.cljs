@@ -36,19 +36,37 @@
 (def line (.line js/d3))
 
 (defn attrs [x s]
-  (doseq [[k v] s]
-    (.attr x (name k) v))
+  (if (fn? s)
+    (.each x
+           (fn [& xs]
+             (this-as this
+               (attrs (.select d3 this)
+                      (apply s xs)))))
+    (doseq [[k v] s]
+      (.attr x (name k) v)))
   x)
 
 (defn styles [x s]
-  (doseq [[k v] s]
-    (.style x (name k) (if (number? v) v (name v))))
+  (if (fn? s)
+    (.each x
+           (fn [& xs]
+             (this-as this
+               (styles (.select d3 this)
+                       (apply s xs)))))
+    (doseq [[k v] s]
+      (.style x (name k) (if (number? v) v (name v)))))
   x)
 
 (defn a&s [x s]
-  (-> x
-      (attrs (:attrs s))
-      (styles (:styles s)))
+  (if (fn? s)
+    (.each x
+           (fn [& xs]
+             (this-as this
+               (a&s (.select d3 this)
+                    (apply s xs)))))
+    (-> x
+        (attrs (:attrs s))
+        (styles (:styles s))))
   x)
 
 ;; colls -----------------------------------------------------
@@ -112,7 +130,7 @@
 
 ;; reagent ---------------------------------------------------------
 
-(defn comp
+(defn component
   [{:keys [render] :as spec}]
   {:pre [(ifn? render)]}
   (let [name (or (:name spec) (str (gensym "rum-")))
@@ -122,69 +140,6 @@
                   [(apply render state (:rum/args state)) state])
         mixins (conj mixins spec)]
     (rum/build-ctor render' mixins name)))
-
-(defn rwrap [build deps-map & [debug]]
-  (let [this (r/atom (build))
-        deps (keys deps-map)
-        shorts (atom #{})
-        log
-        (fn [m]
-          (when debug
-            (p m)
-            ;(p "this: " @this)
-            ;(p "deps: " deps)
-            ;(p "shorts: " @shorts)
-            (p "-----------------")))]
-    (add-watch this
-               :build
-               (fn [_ _ o n]
-                 (if (@shorts this)
-                   (do (log "propagation of this has been short-circuited")
-                       (swap! shorts disj this))
-                   (if (seq @shorts)
-                     (log "propagation of this has been short-circuited")
-                     (do
-                       (swap! shorts into deps)
-                       (doseq [[dep upd] deps-map]
-                         (log (str "propagate this state into dep: " (pr-str dep)))
-                         (swap! shorts disj dep)
-                         (swap! dep (or upd (fn [x _] x)) n)))))))
-    (doseq [r deps]
-      (add-watch r
-                 (keyword (gensym))
-                 (fn [_ _ _ _]
-                   (if (seq @shorts)
-                     (log (str "propagation from " (pr-str r) " to this has been shortcircuited"))
-                     (do
-                       (log "propagate to this")
-                       (swap! shorts conj this)
-                       (reset! this (build)))))))
-    this))
-
-(comment
-  (let [dep1 (r/atom 10)
-        dep2 (r/atom 0)
-        this (rwrap (fn [] {:a @dep1 :b @dep2})
-                    {dep1 (fn [_ v] (:a v))
-                     dep2 (fn [_ v] (:b v))}
-                    true)]
-
-    (p ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-    (p "(swap! this update :a inc)")
-    (p ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-    (swap! this update :a inc)
-
-    (p ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-    (p "(swap! dep1 inc)")
-    (p ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-    (swap! dep1 inc)
-
-    (p ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-    (p "(swap! dep2 dec)")
-    (p ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-    (swap! dep2 dec)
-
-    nil))
 
 (defn rwrap [build deps-map]
   (let [this (atom (build))

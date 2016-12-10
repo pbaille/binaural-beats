@@ -3,6 +3,7 @@
   (:require [reagent.core :as r :refer [atom]]
             [audio.core :as audio]
             [editors.spline :as se]
+            [editors.spline2 :as se2]
             [editors.barcharts :as bce]
             [utils.core :as u :refer [tval]]
             [utils.colors :refer [palettes]]
@@ -189,6 +190,6 @@
                               :tracks (:tracks @state)})}
        "export"]]]))
 
-(r/render-component [main]
+#_(r/render-component [main]
                     (.getElementById js/document "app"))
 
