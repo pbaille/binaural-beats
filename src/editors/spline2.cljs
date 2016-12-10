@@ -13,7 +13,7 @@
 
 ;; event handlers ---------------------------------------------------------
 
-(defn mousemove [{:keys [pad dragged selected svg width height] :as opts}]
+(defn mousemove [{:keys [dragged selected] :as opts}]
   (when @dragged
     (let [scaled-point (scaled-mouse-coords opts)]
       (when-let [idx @selected]
@@ -28,7 +28,7 @@
           (reset! dragged idx)
           opts)))))
 
-(defn mousedown [{:keys [selected dragged svg width height] :as opts}]
+(defn mousedown [{:keys [selected dragged] :as opts}]
   (when-not @dragged
     (let [scaled-point (scaled-mouse-coords opts)
           opts (update opts
@@ -67,21 +67,25 @@
 (def default-styles
   {:points
    {:attrs {:fill "grey"
-            :stroke "lightgrey"
+            :stroke "#FAFAFA"
             :stroke-width 2
             :r 6}}
+
    :selected-point
-   {:attrs {:fill "lightgrey"
+   {:attrs {:fill "#FAFAFA"
             :stroke "grey"
             :stroke-width 2
-            :r 7}}
+            :r 5}}
+
    :svg
    {:styles {:border "2px solid grey"
              :border-radius :4px
              :background :#FAFAFA}}
+
    :lines
    {:attrs {:stroke "grey"
             :stroke-width 2}}
+
    :background
    {:attrs {:stroke "none"
             :fill "transparent"
@@ -93,18 +97,22 @@
             :stroke c2
             :stroke-width 2
             :r 6}}
+
    :selected-point
    {:attrs {:fill c2
             :stroke c1
             :stroke-width 2
             :r 7}}
+
    :svg
    {:styles {:border (str "2px solid " c1)
              :border-radius :4px
              :background c3}}
+
    :lines
    {:attrs {:stroke c1
             :stroke-width 2}}
+
    :background
    {:attrs {:stroke "none"
             :fill "transparent"
@@ -198,21 +206,26 @@
 
 (defn initial-setup [{{:keys [styles width height]} :opts :as s}]
   (let [node (rum/dom-node s)
+
         svg (.. d3
                 (select node)
                 (append "svg")
                 (attr "width" width)
                 (attr "height" height)
                 (call #(u/a&s % (:svg styles))))
+
         path (.. svg
                  (append "path")
                  (attr "fill" "none")
                  (attr "class" "line")
                  (call #(u/a&s % (:lines styles))))
-        s (-> s
-              (assoc-in [:opts :svg] svg)
-              (assoc-in [:opts :node] node)
-              (assoc-in [:opts :path] path))]
+
+        s (update s
+                  :opts
+                  assoc
+                  :svg svg
+                  :node node
+                  :path path)]
 
     (upd (:opts s))
     s))
@@ -238,7 +251,7 @@
 (rum/mount
   (spline-editor
     {:points ps
-     :styles (simple-styles "#24281A" "#FD6467" "#D5D5D3")
+     ;:styles (simple-styles "#24281A" "#FD6467" "#D5D5D3")
      :height 200
      :width 700})
   (.getElementById js/document "app"))
