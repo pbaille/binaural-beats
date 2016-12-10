@@ -1,7 +1,6 @@
 (ns editors.spline2
   (:require [rum.core :as rum]
-            [utils.core :as u :refer [d3 js>]]
-            cljsjs.d3))
+            [utils.core :as u :refer [d3 js>]]))
 
 ;; helpers -----------------------------------------------------
 
@@ -43,7 +42,6 @@
       opts)))
 
 (defn keydown [{:keys [hover points selected] :as opts}]
-  (println (.. d3 -event -keyCode) "yop " @hover @selected)
   (let [c (count points)]
     (when-let [i (and @hover @selected)]
       (condp = (.. d3 -event -keyCode)
@@ -79,7 +77,6 @@
 
    :svg
    {:styles {:border "2px solid grey"
-             :border-radius :4px
              :background :#FAFAFA}}
 
    :lines
@@ -94,7 +91,7 @@
 (defn simple-styles [c1 c2 c3]
   {:points
    {:attrs {:fill c1
-            :stroke c2
+            :stroke c3
             :stroke-width 2
             :r 6}}
 
@@ -102,7 +99,7 @@
    {:attrs {:fill c2
             :stroke c1
             :stroke-width 2
-            :r 7}}
+            :r 5}}
 
    :svg
    {:styles {:border (str "2px solid " c1)
@@ -120,7 +117,9 @@
 
 ;; lifecycle --------------------------------------------------
 
-(defn upd [{:keys [hover sync-fn path svg points pad width height styles selected dragged] :as opts}]
+(enable-console-print!)
+
+(defn upd [{:keys [transition hover sync-fn path svg points pad width height styles selected dragged] :as opts}]
   (let [scaled-points (mapv (fn [[x y]]
                               [(+ pad (* x (- width (* 2 pad))))
                                (+ pad (* (- 1 y) (- height (* 2 pad))))])
@@ -137,15 +136,19 @@
         (datum (js> line-points))
         (attr "d" u/line))
 
+    (.. circles exit remove)
+
     (.. circles
         enter
         (append "circle")
-        (attr "cx" (fn [x i] (aget x 0)))
+        (attr "cx" (fn [x] (aget x 0)))
         (attr "cy" (fn [x] (aget x 1)))
 
         (merge circles)
+
         (on "mouseup"
-            #(do (reset! dragged nil)
+            #(do (println "mouseup" %2)
+                 (reset! dragged nil)
                  (sync-fn opts)
                  (upd opts)))
 
@@ -154,14 +157,9 @@
                  (reset! dragged %2)
                  (upd opts)))
 
-        (call #(u/a&s %
-                      (fn [d i]
-                        (get styles
-                             (if (= i @selected)
-                               :selected-point
-                               :points))))))
-
-    (.. circles exit remove)
+        (attrs #(if (= @selected %2)
+                 (js> (get-in styles [:selected-point :attrs]))
+                 (js> (get-in styles [:points :attrs])))))
 
     (.. svg
         (on "mouseleave"
@@ -202,7 +200,8 @@
        :dragged (atom false)
        :selected (atom nil)
        :hover (atom nil)
-       :sync-fn #(do (println "sync-fn" @points (:points %)) (reset! points (:points %)))})))
+       :transition (atom nil)
+       :sync-fn #(reset! points (:points %))})))
 
 (defn initial-setup [{{:keys [styles width height]} :opts :as s}]
   (let [node (rum/dom-node s)

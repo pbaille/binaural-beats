@@ -1,8 +1,7 @@
 (ns editors.spline
   (:require-macros [reagent.ratom :refer [reaction]])
   (:require [reagent.core :as r :refer [atom]]
-            [utils.core :as u :refer [d3 js>]]
-            cljsjs.d3))
+            [utils.core :as u :refer [d3 js>]]))
 
 ;; event handlers ---------------------------------------------------------
 
@@ -172,7 +171,7 @@
         enter
         (append "circle")
         (on "mousedown" circle-mouse-down)
-        (attr "cx" (fn [x] (aget x 0)))
+        (attr "cx" (fn [x i] (println "enter " i) (aget x 0)))
         (attr "cy" (fn [x] (aget x 1))))
 
     (.. circles exit remove)

@@ -1,6 +1,5 @@
 (ns utils.core
-  (:require [reagent.core :as r]
-            cljsjs.d3
+  (:require #_cljsjs.d3
             [rum.core :as rum]))
 
 ;; generics ------------------------------------------------
