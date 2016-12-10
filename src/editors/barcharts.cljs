@@ -1,19 +1,10 @@
 (ns editors.barcharts
   (:require-macros [reagent.ratom :refer [reaction]])
   (:require [utils.core :refer [d3 js>] :as u]
-            [reagent.core :as r]))
+            [reagent.core :as r]
+            [rum.core :as rum]))
 
 ;; handlers -------------------------------------------
-
-(defn keydown [{:keys [state on-done]}]
-  (println (.. d3 -event -keyCode))
-  (let [c (count (:points @state))]
-    (when-let [i (:selected @state)]
-      (condp = (.. d3 -event -keyCode)
-        8 (println "delete")
-        39 (println "right")
-        37 (println "left")
-        nil))))
 
 (defn mouse-upd [{:keys [svg bar-width bar-margin bar-max-height] :as opts}]
   (let [[x y] (js->clj (.mouse d3 (.node svg)))]
@@ -25,12 +16,12 @@
                    bar-max-height)))))
 
 (defn hover-tracker [{:keys [svg bar-width hover] :as opts}]
-  (when-let [[x y] (js->clj (.mouse d3 (.node svg)))]
+  (when-let [[x _] (js->clj (.mouse d3 (.node svg)))]
     (let [idx (js/Math.floor (/ x bar-width))]
       (when-not (= idx @hover)
         (reset! hover idx)))))
 
-;; styles -------------------------------------------------------------
+;; styles ----------------------------------------------
 
 (def default-styles
   {:bars {:attrs {:fill "white"
@@ -49,34 +40,7 @@
    :svg {:styles {:background c2
                   :border (str "2px solid " c1)}}})
 
-;; draw ---------------------------------------------------------------
-
-(defn init [{:keys [node points width height styles]}]
-
-  (.. d3 (select node) (select ".barchart-svg") remove)
-
-  (let [styles (u/merge-in default-styles styles)
-        svg (.. d3
-                (select node)
-                (append "svg")
-                (attr "width" width)
-                (attr "height" height)
-                (call #(u/a&s % (:svg styles))))
-        bar-margin (get-in styles [:bars :margin])]
-    {:svg svg
-     :g (.append svg "g")
-     :styles styles
-     :node node
-     :points @points
-     :width width
-     :height height
-     :bar-width (/ (- width bar-margin) (count @points))
-     :bar-margin bar-margin
-     :bar-max-height (- height (* 2 bar-margin))
-     :dragged (atom false)
-     :hover (atom nil)
-     :sync-fn (fn [{ps :points}]
-                (reset! points ps))}))
+;; lifecycle --------------------------------------------
 
 (defn upd [{:keys [g
                    svg
@@ -98,13 +62,13 @@
     (.. bars
         enter
         (append "rect")
-        (attr "x" (fn [[i x]] (+ bar-margin (* bar-width i))))
         (attr "y" height)
-        (attr "width" (- bar-width bar-margin))
         (attr "fill" "grey")
         (call #(u/a&s % (:bars styles)))
 
         (merge bars)
+        (attr "x" (fn [[i x]] (+ bar-margin (* bar-width i))))
+        (attr "width" (- bar-width bar-margin))
         (attr "height" (fn [[i x]] (* bar-max-height x)))
         (attr "y" (fn [[i x]] (+ bar-margin (- bar-max-height (* bar-max-height x)))))
         (transition 30)
@@ -132,30 +96,81 @@
               (reset! hover nil)
               (upd opts))))))
 
-(defn barchart-editor [opts]
-  (let [refresh #(upd (init (assoc (r/props %) :node (r/dom-node %))))]
-    (r/create-class
-      {:reagent-render
-       (fn []
-         [:div.barchart-editor-wrap])
-       :component-did-update refresh
-       :component-did-mount refresh})))
+(defn initial-state [s]
+  (let [{:keys [points styles width height] :as opts}
+        (first (:rum/args s))
+        styles (u/merge-in default-styles styles)
+        bar-margin (get-in styles [:bars :margin])]
+    (assoc s
+      :opts
+      {:styles styles
+       :points @points
+       :width width
+       :height height
+       :bar-width (/ (- width bar-margin) (count @points))
+       :bar-margin bar-margin
+       :bar-max-height (- height (* 2 bar-margin))
+       :dragged (atom false)
+       :hover (atom nil)
+       :sync-fn (fn [{ps :points}]
+                  (reset! points ps))})))
 
-(defn timed-barchart-editor [opts]
-  (let [selected (r/atom 0)
-        points (reaction (r/cursor (:points opts) [@selected 1]))]
-    (fn []
-      [:div.timed-barchart-editor-wrap
-       [barchart-editor
-        (assoc (:barchart opts) :points @points)]])))
+(defn initial-setup
+  [{{:keys [styles width height]} :opts :as s}]
+
+  (let [node (rum/dom-node s)
+
+        svg (.. d3
+                (select node)
+                (append "svg")
+                (attr "width" width)
+                (attr "height" height)
+                (call #(u/a&s % (:svg styles))))
+
+        g (.append svg "g")
+
+        s (-> s
+              (assoc-in [:opts :svg] svg)
+              (assoc-in [:opts :node] node)
+              (assoc-in [:opts :g] g))]
+
+    (upd (:opts s))
+    s))
+
+(defn sync-points [s]
+  (let [ps @(:points (first (:rum/args s)))
+        opts (:opts s)
+        s (-> s
+              (assoc-in [:opts :points] ps)
+              (assoc-in [:opts :bar-width]
+                        (/ (- (:width opts) (:bar-margin opts))
+                           (count ps))))]
+    (upd (:opts s))
+    s))
+
+;; component -------------------------------------------
+
+(rum/defcs barchart-editor <
+  {:will-mount initial-state
+   :did-mount initial-setup
+   :did-update sync-points}
+  rum/reactive
+  [_ opts]
+  (rum/react (:points opts))
+  [:div.barchart-editor-wrap])
+
+;; exemple ----------------------------------------------
 
 (comment
-  (u/mount
-    [timed-barchart-editor
-     {:points (r/atom [[0 [1 1 1 1 1]] [5 [0 0 0 0 0]]])
-      :duration 10
-      :barchart
-      {:styles (simple-styles "white" "pink")
-       :height 200
-       :width 800}}]
-    "app"))
+
+  (def ps (atom [0 0.5 0.7 0.2]))
+
+  (comment (swap! ps conj 1))
+
+  (println @ps)
+
+  (rum/mount (barchart-editor {:points ps
+                               :styles (simple-styles "white" "pink")
+                               :height 200
+                               :width 800})
+             (.getElementById js/document "app")))

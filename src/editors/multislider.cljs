@@ -4,7 +4,7 @@
 
 (defn mouse-upd [{:keys [svg selected width pad] :as opts}]
   (when @selected
-    (let [[x y] (js->clj (.mouse d3 (.node svg)))]
+    (let [[x _] (js->clj (.mouse d3 (.node svg)))]
       (assoc-in opts
                 [:points @selected]
                 ((u/bounder 0 1)
@@ -22,9 +22,7 @@
     (when-let [i @selected]
       (condp = (.. d3 -event -keyCode)
 
-        8 (do (reset! selected (if (= (dec c) i)
-                                 (dec i)
-                                 i))
+        8 (do (reset! selected (if (= (dec c) i) (dec i) i))
               (update opts :points u/rem-idx i))
 
         39 (do (swap! selected (fn [x] (mod (inc x) c)))
@@ -32,6 +30,7 @@
 
         37 (do (swap! selected (fn [x] (mod (dec x) c)))
                opts)
+
         opts))))
 
 ;; styles -------------------------------------------------------------
@@ -174,33 +173,40 @@
     (upd (:opts s))
     s))
 
-(rum/defcs ms <
+(defn sync-points [s]
+  (let [ps @(:points (first (:rum/args s)))
+        s (assoc-in s [:opts :points] ps)]
+    (upd (:opts s))
+    s))
+
+(rum/defcs multislider <
   {:will-mount initial-state
    :did-mount initial-setup
-   :did-update (fn [s]
-                 (let [ps @(:points (first (:rum/args s)))
-                       s (assoc-in s [:opts :points] ps)]
-                   (upd (:opts s))
-                   s))}
+   :did-update sync-points}
   rum/reactive
-  [state opts]
+  [_ opts]
   (rum/react (:points opts))
   [:div.multislider-editor-wrap])
 
 (def ps (atom [0 0.2 0.5 0.9 1]))
+(def p (atom 0.1))
 
-(comment (reset! ps [0 1]))
+(comment (reset! ps [0 1])
+         (reset! p [0.5])
+         (println @ps @p))
 
 
-(rum/mount (let [dps (u/rwrap (fn [] (conj @ps 0.1))
-                              {ps (fn [_ v] (vec (butlast v)))})]
-             (ms
+(rum/mount (let [dps (u/rwrap (fn [] (conj @ps @p))
+                                {ps (fn [_ v] (vec (butlast v)))
+                                 p (fn [_ v] (last v))})]
+             (multislider
                {:points dps
                 :height 100
                 :width 800}))
            (.getElementById js/document "app"))
 
 (comment
+  (rum/build-ctor)
   (.. d3
       (select "#app")
       (append "div")

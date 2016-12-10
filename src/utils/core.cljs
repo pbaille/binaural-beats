@@ -1,6 +1,7 @@
 (ns utils.core
   (:require [reagent.core :as r]
-            cljsjs.d3))
+            cljsjs.d3
+            [rum.core :as rum]))
 
 ;; generics ------------------------------------------------
 
@@ -111,74 +112,152 @@
 
 ;; reagent ---------------------------------------------------------
 
-(defn rwrap [build reaction-map & [debug]]
-  (let [a1 (r/atom (build))
-        refs (keys reaction-map)
+(defn comp
+  [{:keys [render] :as spec}]
+  {:pre [(ifn? render)]}
+  (let [name (or (:name spec) (str (gensym "rum-")))
+        mixins (or (:mixins spec) [])
+        spec (dissoc spec :name :mixins :render)
+        render' (fn [state]
+                  [(apply render state (:rum/args state)) state])
+        mixins (conj mixins spec)]
+    (rum/build-ctor render' mixins name)))
+
+(defn rwrap [build deps-map & [debug]]
+  (let [this (r/atom (build))
+        deps (keys deps-map)
         shorts (atom #{})
-        log-state (fn []
-                    (p @a1)
-                    (p refs)
-                    (p @shorts))]
-    (add-watch a1
+        log
+        (fn [m]
+          (when debug
+            (p m)
+            ;(p "this: " @this)
+            ;(p "deps: " deps)
+            ;(p "shorts: " @shorts)
+            (p "-----------------")))]
+    (add-watch this
                :build
                (fn [_ _ o n]
-                 ;(p "build" (@shorts a1) (not (seq @shorts)))
-                 (when debug
-                   (p "---- a1 start: ----")
-                   (log-state))
-                 (if (@shorts a1)
-                   (swap! shorts disj a1)
-                   (when-not (seq @shorts)
-                     (swap! shorts into refs)
-                     (doseq [[ref upd] reaction-map]
-                       (swap! shorts disj ref)
-                       (swap! ref (or upd (fn [x _] x)) n))))
-                 (when debug
-                   (p "---- a1 end: ----")
-                   (log-state))
-                 ))
-    (doseq [r refs]
+                 (if (@shorts this)
+                   (do (log "propagation of this has been short-circuited")
+                       (swap! shorts disj this))
+                   (if (seq @shorts)
+                     (log "propagation of this has been short-circuited")
+                     (do
+                       (swap! shorts into deps)
+                       (doseq [[dep upd] deps-map]
+                         (log (str "propagate this state into dep: " (pr-str dep)))
+                         (swap! shorts disj dep)
+                         (swap! dep (or upd (fn [x _] x)) n)))))))
+    (doseq [r deps]
       (add-watch r
                  (keyword (gensym))
                  (fn [_ _ _ _]
-                   ;(p "react" (@shorts r) (not (seq @shorts)))
-                   (when debug
-                     (p "---- r start:" r " ----")
-                     (log-state))
-                   (when-not (seq @shorts)
-                     (swap! shorts conj a1)
-                     (reset! a1 (build)))
-                   (when debug
-                     (p "---- r end:" r " ----")
-                     (log-state))
-                   )))
-    a1))
+                   (if (seq @shorts)
+                     (log (str "propagation from " (pr-str r) " to this has been shortcircuited"))
+                     (do
+                       (log "propagate to this")
+                       (swap! shorts conj this)
+                       (reset! this (build)))))))
+    this))
 
 (comment
-  (let [a (r/atom 10)
-        b (r/atom 0)
-        s (rwrap (fn [] {:a @a :b @b})
-                 {a (fn [_ v] (:a v))
-                  b (fn [_ v] (:b v))})]
+  (let [dep1 (r/atom 10)
+        dep2 (r/atom 0)
+        this (rwrap (fn [] {:a @dep1 :b @dep2})
+                    {dep1 (fn [_ v] (:a v))
+                     dep2 (fn [_ v] (:b v))}
+                    true)]
 
     (p ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-    (p "(swap! s update :a inc)")
-    (swap! s update :a inc)
+    (p "(swap! this update :a inc)")
+    (p ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+    (swap! this update :a inc)
 
     (p ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-    (p "(swap! s update :a inc)")
-    (swap! s update :a inc)
+    (p "(swap! dep1 inc)")
+    (p ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+    (swap! dep1 inc)
 
     (p ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-    (p "(swap! a inc)")
-    (swap! a inc)
-
+    (p "(swap! dep2 dec)")
     (p ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-    (p "(swap! a inc)")
-    (swap! a inc)
+    (swap! dep2 dec)
 
-    (p ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-    (p "(swap! b dec)")
-    (swap! b dec)
-    ))
+    nil))
+
+(defn rwrap [build deps-map]
+  (let [this (atom (build))
+        deps (keys deps-map)
+        propagating (atom nil)]
+    (add-watch this
+               :build
+               (fn [_ _ _ n]
+                 (when-not @propagating
+                   (reset! propagating true)
+                   (doseq [[dep upd] deps-map]
+                     (swap! dep (or upd (fn [x _] x)) n))
+                   (reset! propagating false))))
+    (doseq [r deps]
+      (add-watch r
+                 (keyword (gensym))
+                 (fn [_ _ _ _]
+                   (when-not @propagating
+                     (reset! propagating true)
+                     (reset! this (build))
+                     (reset! propagating false)))))
+    this))
+
+(defn rwrap-debug [build deps-map]
+  (let [this (atom (build))
+        deps (keys deps-map)
+        propagating (atom nil)]
+    (add-watch this
+               :build
+               (fn [_ _ _ n]
+                 (if @propagating
+                   (p "propagation form this stopped")
+                   (do (reset! propagating true)
+                       (doseq [[dep upd] deps-map]
+                         (p (str "propagate this change to " (pr-str dep)))
+                         (swap! dep (or upd (fn [x _] x)) n))
+                       (p "done propagating")
+                       (reset! propagating false)))))
+    (doseq [r deps]
+      (add-watch r
+                 (keyword (gensym))
+                 (fn [_ _ _ _]
+                   (if @propagating
+                     (p "propagation to this stopped")
+                     (do
+                       (reset! propagating true)
+                       (p "propagate to this")
+                       (reset! this (build))
+                       (p "done propagating")
+                       (reset! propagating false))))))
+    this))
+
+(comment
+  (let [dep1 (atom 10)
+        dep2 (atom 0)
+        this (rwrap-debug
+               (fn [] {:a @dep1 :b @dep2})
+               {dep1 (fn [_ v] (:a v))
+                dep2 (fn [_ v] (:b v))})]
+
+    (p "<> (swap! this update :a inc) <>")
+    (swap! this update :a inc)
+
+    (p "<> (swap! dep1 inc) <>")
+    (swap! dep1 inc)
+
+    (p "<> (swap! dep2 dec) <>")
+    (swap! dep2 dec)
+
+    (assert (and
+              (= @dep1 12)
+              (= @dep2 -1)
+              (= @this {:a 12 :b -1})))
+
+    nil))
 
