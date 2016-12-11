@@ -67,7 +67,8 @@
    {:attrs {:fill "grey"
             :stroke "#FAFAFA"
             :stroke-width 2
-            :r 6}}
+            :r 6}
+    :styles {:transition "all .5s"}}
 
    :selected-point
    {:attrs {:fill "#FAFAFA"
@@ -119,18 +120,34 @@
 
 (enable-console-print!)
 
-(defn upd [{:keys [transition hover sync-fn path svg points pad width height styles selected dragged] :as opts}]
-  (let [scaled-points (mapv (fn [[x y]]
-                              [(+ pad (* x (- width (* 2 pad))))
-                               (+ pad (* (- 1 y) (- height (* 2 pad))))])
-                            points)
-        line-points (as-> scaled-points ps
-                          (conj ps [width (second (last ps))])
-                          (cons [0 (second (first ps))] ps))
+(defn upd [{:keys [hover
+                   selected
+                   dragged
+                   sync-fn
+                   path
+                   svg
+                   points
+                   pad
+                   width
+                   height
+                   styles]
+            :as opts}]
 
-        circles (.. svg
-                    (selectAll "circle")
-                    (data (js> scaled-points) identity))]
+  (let [scaled-points
+        (mapv (fn [[x y]]
+                [(+ pad (* x (- width (* 2 pad))))
+                 (+ pad (* (- 1 y) (- height (* 2 pad))))])
+              points)
+
+        line-points
+        (as-> scaled-points ps
+              (conj ps [width (second (last ps))])
+              (cons [0 (second (first ps))] ps))
+
+        circles
+        (.. svg
+            (selectAll "circle")
+            (data (js> scaled-points)))]
 
     (.. path
         (datum (js> line-points))
@@ -141,25 +158,21 @@
     (.. circles
         enter
         (append "circle")
-        (attr "cx" (fn [x] (aget x 0)))
-        (attr "cy" (fn [x] (aget x 1)))
+        (style "transition" "fill .5s, stroke .5s, r .5s")
 
         (merge circles)
 
-        (on "mouseup"
-            #(do (println "mouseup" %2)
-                 (reset! dragged nil)
-                 (sync-fn opts)
-                 (upd opts)))
+        (attr "cx" (fn [x i] (aget x 0)))
+        (attr "cy" (fn [x] (aget x 1)))
+        (attrs #(if (= @selected %2)
+                  (js> (get-in styles [:selected-point :attrs]))
+                  (js> (get-in styles [:points :attrs]))))
 
         (on "mousedown"
             #(do (reset! selected %2)
                  (reset! dragged %2)
-                 (upd opts)))
-
-        (attrs #(if (= @selected %2)
-                 (js> (get-in styles [:selected-point :attrs]))
-                 (js> (get-in styles [:points :attrs])))))
+                 (.stopPropagation (.-event d3))
+                 (upd opts))))
 
     (.. svg
         (on "mouseleave"
@@ -174,9 +187,15 @@
             #(when-let [new-opts (mousemove opts)]
                (upd new-opts)))
 
+        (on "mouseup"
+            #(do
+               (reset! dragged nil)
+               (sync-fn opts)
+               (upd opts)))
+
         (on "mousedown"
             #(when-let [new-opts (mousedown opts)]
-               (upd new-opts))))
+              (upd new-opts))))
 
     (.. d3
         (select js/window)
@@ -200,7 +219,6 @@
        :dragged (atom false)
        :selected (atom nil)
        :hover (atom nil)
-       :transition (atom nil)
        :sync-fn #(reset! points (:points %))})))
 
 (defn initial-setup [{{:keys [styles width height]} :opts :as s}]
