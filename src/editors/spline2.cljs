@@ -213,7 +213,7 @@
       :opts
       {:styles styles
        :pad pad
-       :points @points
+       :points (vec (sort-by first @points))
        :width width
        :height height
        :dragged (atom false)
@@ -249,7 +249,7 @@
 
 (defn sync-points [s]
   (println "sync")
-  (let [ps @(:points (first (:rum/args s)))
+  (let [ps (->> s :rum/args first :points deref (sort-by first) vec)
         s (assoc-in s [:opts :points] ps)]
     (upd (:opts s))
     s))
@@ -264,6 +264,8 @@
   [:div.spline-editor-wrap])
 
 (def ps (atom [[0 0] [0.5 0.2] [1 1]]))
+
+(comment (swap! ps conj [0.3 0.3]))
 
 (rum/mount
   (spline-editor
