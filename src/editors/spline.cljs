@@ -1,278 +1,325 @@
 (ns editors.spline
-  (:require-macros [reagent.ratom :refer [reaction]])
-  (:require [reagent.core :as r :refer [atom]]
+  (:require [rum.core :as rum]
             [utils.core :as u :refer [d3 js>]]))
+
+;; helpers -----------------------------------------------------
+
+(defn scaled-mouse-coords [{:keys [pad svg width height]}]
+  (let [[x y] (js->clj (.mouse d3 (.node svg)))
+        bound (u/bounder 0 1)]
+    [(bound (/ (- x pad) (- width (* 2 pad))))
+     (bound (- 1 (/ (- y pad) (- height (* 2 pad)))))]))
 
 ;; event handlers ---------------------------------------------------------
 
-(defn mousemove [{:keys [padding state svg width height on-done]}]
-  (when (and (:dragged @state) #_(:selected @state))
-    (let [m (.mouse d3 (.node svg))
-          mx ((u/bounder padding (+ padding width)) (aget m 0))
-          my ((u/bounder padding (+ padding height)) (aget m 1))
-          idx (:selected @state)]
+(defn mousemove [{:keys [dragged selected] :as opts}]
+  (when @dragged
+    (let [scaled-point (scaled-mouse-coords opts)]
+      (when-let [idx @selected]
+        (let [opts (update opts
+                           :points
+                           (fn [ps]
+                             (->> (assoc ps idx scaled-point)
+                                  (sort-by first)
+                                  vec)))
+              idx (u/index-of (:points opts) scaled-point)]
+          (reset! selected idx)
+          (reset! dragged idx)
+          opts)))))
 
-      (when idx
-        (swap! state
-               update
-               :points
-               (fn [pts]
-                 (->> (assoc pts idx [mx my])
-                      (sort-by first)
-                      vec)))
-        (on-done)))))
+(defn mousedown [{:keys [selected dragged] :as opts}]
+  (when-not @dragged
+    (let [scaled-point (scaled-mouse-coords opts)
+          opts (update opts
+                       :points
+                       (fn [ps]
+                         (->> (conj ps scaled-point)
+                              (sort-by first)
+                              vec)))
+          idx (u/index-of (:points opts) scaled-point)]
+      (reset! selected idx)
+      (reset! dragged idx)
+      opts)))
 
-(defn mousedown [{:keys [svg state on-done]}]
-  (when-let [[x y] (js->clj (.mouse d3 (.node svg)))]
-    (println "mousedown" (u/index-of (:points @state) [x y]) [x y] (:points @state))
-    (swap! state
-           #(as-> % s
-                  (update
-                    s
-                    :points
-                    (fn [ps] (vec (sort-by first (conj ps [x y])))))
-                  (assoc
-                    s
-                    :selected (u/index-of (:points s) [x y])
-                    :dragged true)))
-    (on-done)))
-
-(defn keydown [{:keys [state on-done]}]
-  (println (.. d3 -event -keyCode))
-  (let [c (count (:points @state))]
-    (when-let [i (:selected @state)]
+(defn keydown [{:keys [hover points selected] :as opts}]
+  (let [c (count points)]
+    (when-let [i (and @hover @selected)]
       (condp = (.. d3 -event -keyCode)
 
-        8 (do (swap! state
-                     #(-> %
-                          (update :points u/rem-idx i)
-                          (update :selected (fn [i]
-                                              (if (= (dec c) i)
-                                                (dec i)
-                                                i)))))
-              (on-done)) ;delete pressed
+        8 (do (swap! selected
+                     (fn [i]
+                       (if (= (dec c) i)
+                         (dec i)
+                         i)))
+              (update opts :points u/rem-idx i))
 
-        39 (do (swap! state
-                      update
-                      :selected
-                      (fn [x] (mod (inc x) c)))
-               (on-done))
+        39 (do (swap! selected (fn [x] (mod (inc x) c)))
+               opts)
 
-        37 (do (swap! state
-                      update
-                      :selected
-                      (fn [x] (mod (dec x) c)))
-               (on-done))
+        37 (do (swap! selected (fn [x] (mod (dec x) c)))
+               opts)
         nil))))
 
 ;; styles -----------------------------------------------------
 
 (def default-styles
-  {:points {:fill "grey"
-            :stroke "lightgrey"
+  {:points
+   {:attrs {:fill "grey"
+            :stroke "#FAFAFA"
             :stroke-width 2
             :r 6}
-   :selected-point {:fill "lightgrey"
-                    :stroke "grey"
-                    :stroke-width 2
-                    :r 7}
-   :svg {:border "2px solid grey"
-         :border-radius :4px
-         :background :#FAFAFA}
-   :lines {:stroke "grey"
-           :stroke-width 2}
-   :background {:stroke "none"
-                :fill "transparent"
-                :stroke-width 0}})
+    :styles {:transition "all .5s"}}
+
+   :selected-point
+   {:attrs {:fill "#FAFAFA"
+            :stroke "grey"
+            :stroke-width 2
+            :r 5}}
+
+   :svg
+   {:styles {:border "2px solid grey"
+             :background :#FAFAFA}}
+
+   :lines
+   {:attrs {:stroke "grey"
+            :stroke-width 2}}
+
+   :background
+   {:attrs {:stroke "none"
+            :fill "transparent"
+            :stroke-width 0}}})
 
 (defn simple-styles [c1 c2 c3]
-  {:points {:fill c1
-            :stroke c2
+  {:points
+   {:attrs {:fill c1
+            :stroke c3
             :stroke-width 2
-            :r 6}
-   :selected-point {:fill c2
-                    :stroke c1
-                    :stroke-width 2
-                    :r 7}
-   :svg {:border (str "2px solid " c1)
-         :border-radius :4px
-         :background c3}
-   :lines {:stroke c1
-           :stroke-width 2}
-   :background {:stroke "none"
-                :fill "transparent"
-                :stroke-width 0}})
+            :r 6}}
 
-(defn merged-with-defaults [s]
-  (into {}
-        (map (fn [[k v]]
-               [k (merge v (get s k))])
-             default-styles)))
+   :selected-point
+   {:attrs {:fill c2
+            :stroke c1
+            :stroke-width 2
+            :r 5}}
+
+   :svg
+   {:styles {:border (str "2px solid " c1)
+             :border-radius :4px
+             :background c3}}
+
+   :lines
+   {:attrs {:stroke c1
+            :stroke-width 2}}
+
+   :background
+   {:attrs {:stroke "none"
+            :fill "transparent"
+            :stroke-width 0}}})
 
 ;; lifecycle --------------------------------------------------
 
-(defn redraw [{:keys [this state sync-fn] :as opts}]
+(enable-console-print!)
 
-  (let [points (:points @state)
+(defn upd [{:keys [hover
+                   selected
+                   dragged
+                   sync-fn
+                   path
+                   svg
+                   points
+                   pad
+                   width
+                   height
+                   styles]
+            :as opts}]
 
-        {:keys [width style]} (r/props this)
+  (let [scaled-points
+        (mapv (fn [[x y]]
+                [(+ pad (* x (- width (* 2 pad))))
+                 (+ pad (* (- 1 y) (- height (* 2 pad))))])
+              points)
 
-        padding (:padding style 0)
+        line-points
+        (as-> scaled-points ps
+              (conj ps [width (second (last ps))])
+              (cons [0 (second (first ps))] ps))
 
-        svg (.. d3
-                (select (r/dom-node this))
-                (select "svg"))
-
-        circles (.. svg
-                    (selectAll "circle")
-                    (data (js> points) identity))
-
-        {path-styles :lines
-         circles-styles :points
-         selected-styles :selected-point} (merged-with-defaults style)
-
-        get-circle-styles (fn [idx]
-                            (if (= idx (:selected @state))
-                              selected-styles
-                              circles-styles))
-
-        circle-mouse-down (fn [d idx]
-                            (swap! state
-                                   assoc
-                                   :selected idx
-                                   :dragged true)
-                            (redraw opts))
-
-        circle-mouseup (fn [d i]
-                         (swap! state assoc :dragged nil)
-                         (sync-fn))
-
-        path-datum (js> (cons [0 (-> points first second)]
-                              (conj (vec points)
-                                    [(+ (* 2 padding) width) (-> points last second)])))
-
-        circle-selected? (fn [d i]
-                           (= i (:selected @state)))
-
-        path (.. svg (select "path"))]
+        circles
+        (.. svg
+            (selectAll "circle")
+            (data (js> scaled-points)))]
 
     (.. path
-        (datum path-datum)
+        (datum (js> line-points))
         (attr "d" u/line))
 
-    (u/attrs path path-styles)
-
-    (.. circles
-        (classed "selected" circle-selected?)
-        (on "mousedown" circle-mouse-down)
-        (on "mouseup" circle-mouseup))
+    (.. circles exit remove)
 
     (.. circles
         enter
         (append "circle")
-        (on "mousedown" circle-mouse-down)
-        (attr "cx" (fn [x i] (println "enter " i) (aget x 0)))
-        (attr "cy" (fn [x] (aget x 1))))
+        (style "transition" "fill .5s, stroke .5s, r .5s")
 
-    (.. circles exit remove)
+        (merge circles)
+
+        (attr "cx" (fn [x i] (aget x 0)))
+        (attr "cy" (fn [x] (aget x 1)))
+        (attrs #(if (= @selected %2)
+                  (js> (get-in styles [:selected-point :attrs]))
+                  (js> (get-in styles [:points :attrs]))))
+
+        (on "mousedown"
+            #(do (reset! selected %2)
+                 (reset! dragged %2)
+                 (.stopPropagation (.-event d3))
+                 (upd opts))))
 
     (.. svg
-        (selectAll "circle")
-        (transition 500)
-        (attr "r" (fn [d i] (:r (get-circle-styles i))))
-        (attr "fill" (fn [d i] (:fill (get-circle-styles i))))
-        (attr "stroke" (fn [d i] (:stroke (get-circle-styles i))))
-        (attr "stroke-width" (fn [d i] (:stroke-width (get-circle-styles i)))))
+        (on "mouseleave"
+            #(do (reset! dragged nil)
+                 (reset! hover nil)
+                 (sync-fn opts)))
 
-    (when-let [e (.-event d3)]
-      (.preventDefault e)
-      (.stopPropagation e))))
+        (on "mouseenter"
+            #(reset! hover true))
 
-(defn init [{:keys [this state sync-fn]}]
+        (on "mousemove"
+            #(when-let [new-opts (mousemove opts)]
+               (upd new-opts)))
 
-  (let [{:keys [width height style]} (r/props this)
-        points (:points @state)
-        redraw #(redraw {:this this
-                         :state state
-                         :sync-fn sync-fn})
+        (on "mouseup"
+            #(do
+               (reset! dragged nil)
+               (sync-fn opts)
+               (upd opts)))
+
+        (on "mousedown"
+            #(when-let [new-opts (mousedown opts)]
+               (upd new-opts))))
+
+    (when @hover
+      (.. d3
+          (select js/window)
+          (on "keydown"
+              #(when-let [new-opts (keydown opts)]
+                   (upd new-opts)))))))
+
+(defn format-args [s]
+  (let [{:keys [points styles width height on-change] :as opts}
+        (first (:rum/args s))
+        styles (u/merge-in default-styles styles)
+        pad (max (get-in styles [:points :attrs :r])
+                 (get-in styles [:selected-point :attrs :r]))
+        short-circuit (atom false)]
+    (update s
+            :opts
+            assoc
+            :styles styles
+            :pad pad
+            :points (vec (sort-by first points))
+            :width width
+            :height height
+            :short-circuit short-circuit
+            :sync-fn #(do (reset! short-circuit true) (on-change (:points %))))))
+
+(defn init-internal-state [s]
+  (update s
+          :opts
+          assoc
+          :dragged (atom false)
+          :selected (atom nil)
+          :hover (atom nil)))
+
+(defn init-base-elements [s]
+  (let [node (rum/dom-node s)
 
         svg (.. d3
-                (select (r/dom-node this))
-                (select "svg"))]
+                (select node)
+                (append "svg"))
 
-    (u/styles svg (:svg (merged-with-defaults style)))
+        path (.. svg
+                 (append "path")
+                 (attr "fill" "none")
+                 (attr "class" "line"))]
+    (update s
+            :opts
+            assoc
+            :svg svg
+            :node node
+            :path path)))
 
-    (.. svg
-        (on "mousedown" #(mousedown {:svg svg
-                                     :state state
-                                     :on-done redraw})))
+(defn apply-base-styles [{{:keys [svg width height styles]} :opts :as s}]
+  (.. svg
+      (attr "width" width)
+      (attr "height" height)
+      (call #(u/a&s % (:svg styles))))
 
-    (.. svg
-        (append "path")
-        (datum (js> (map (juxt :x :y) points)))
-        (attr "d" u/line)
-        (attr "fill" "none")
-        (attr "class" "line"))
+  (.. svg
+      (select "path")
+      (call #(u/a&s % (:lines styles))))
+  s)
 
-    (.. d3
-        (select js/window)
-        (on "keydown"
-            #(keydown {:points points
-                       :on-done redraw
-                       :state state})))
+(defn draw [s]
+  (upd (:opts s))
+  s)
 
-    (.. d3
-        (select (r/dom-node this))
-        (select "svg")
-        (on "mousemove"
-            #(mousemove {:svg svg
-                         :width width
-                         :height height
-                         :padding (:padding style 0)
-                         :state state
-                         :on-done redraw}))
-        (on "mouseup"
-            #(do (swap! state assoc :dragged nil)
-                 (sync-fn))))
+(defn should-update [o _]
+  (if @(get-in o [:opts :short-circuit])
+    (reset! (get-in o [:opts :short-circuit]) false)
+    true))
 
-    (redraw)))
+(rum/defc spline-editor <
+  {:will-mount #(-> % format-args init-internal-state)
+   :did-mount #(-> % init-base-elements apply-base-styles draw)
+   :should-update should-update
+   :will-update #(-> % format-args apply-base-styles draw)}
+  [{:keys [points on-change width height styles] :as opts}]
+  [:div.spline-editor-wrap])
 
-;; component --------------------------------------------------------
+(comment
+  (rum/mount
+    (spline-editor
+      {:points [[0 1] [1 0]]
+       ;:styles (simple-styles "#24281A" "#FD6467" "#D5D5D3")
+       :on-change identity
+       :height 200
+       :width 700})
+    (.getElementById js/document "app")))
 
-(defn spline-editor [{:keys [width height style ranges points]}]
-  (let [padding (:padding style 0)
-        scale-points (fn [{[minx maxx] :x [miny maxy] :y} points]
-                       (mapv (fn [[x y]]
-                               [(u/scale-range x minx maxx padding (+ padding width))
-                                (u/scale-range y maxy miny padding (+ padding height))])
-                             points))
+(defn scale-tool [{{[x-in-min x-in-max] :x
+                    [y-in-min y-in-max] :y} :in
+                   {[x-out-min x-out-max] :x
+                    [y-out-min y-out-max] :y} :out}]
+  {:>> (fn [xs]
+         (map vector
+              (map #(u/scale-range % x-in-min x-in-max x-out-min x-out-max) (map first xs))
+              (map #(u/scale-range % y-in-min y-in-max y-out-min y-out-max) (map second xs))))
+   :<< (fn [xs]
+         (map vector
+              (map #(u/scale-range % x-out-min x-out-max x-in-min x-in-max) (map first xs))
+              (map #(u/scale-range % y-out-min y-out-max y-in-min y-in-max) (map second xs))))})
 
-        state (cljs.core/atom
-                {:dragged nil
-                 :selected 0
-                 :points (scale-points ranges @points)})
+(rum/defc spline-editor* <
+  rum/reactive
+  [{:keys [ranges points] :as opts}]
+  (let [{:keys [>> <<]} (scale-tool {:in (rum/react ranges)
+                                     :out {:x [0 1] :y [0 1]}})]
+    (spline-editor
+      (assoc opts
+        :points (>> (rum/react points))
+        :on-change #(reset! points (<< %))))))
 
-        sync-points (fn [{[minx maxx] :x [miny maxy] :y} ps]
-                      (reset! ps
-                              (mapv (fn [[x y]]
-                                      [(u/scale-range x padding (+ padding width) minx maxx)
-                                       (u/scale-range y padding (+ padding height) maxy miny)])
-                                    (:points @state))))]
-    (r/create-class
-      {:reagent-render (fn []
-                         [:div.spline-editor-wrap
-                          [:svg {:width (+ (* 2 (:padding style 0)) width)
-                                 :height (+ (* 2 (:padding style 0)) height)}]])
-       :component-did-update
-       (fn [this]
-         (let [{rs :ranges ps :points} (r/props this)]
-           (swap! state assoc :points (scale-points rs @ps))
-           (init {:this this
-                  :state state
-                  :sync-fn (partial sync-points rs ps)})))
-       :component-did-mount
-       (fn [this]
-         (let [{rs :ranges ps :points} (r/props this)]
-           (init {:this this
-                  :state state
-                  :sync-fn (partial sync-points rs ps)})))})))
+(do
+
+  (def ps (atom [[0 10] [5 6] [9 1]]))
+  (def rs (atom {:x [0 10] :y [0 10]}))
+
+  (comment
+    (swap! ps conj [1 1])
+    (swap! rs assoc :y [0 30]))
+
+  (rum/mount
+    (spline-editor*
+      {:ranges rs
+       :points ps})
+    (.getElementById js/document "app")))

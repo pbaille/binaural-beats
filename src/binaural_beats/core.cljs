@@ -3,7 +3,6 @@
   (:require [reagent.core :as r :refer [atom]]
             [audio.core :as audio]
             [editors.spline :as se]
-            [editors.spline2 :as se2]
             [editors.barcharts :as bce]
             [utils.core :as u :refer [tval]]
             [utils.colors :refer [palettes]]
@@ -113,10 +112,10 @@
                        :on-change #(swap! ranges assoc-in [:y 1] (js/parseFloat (tval %)))}]])))
        (cond
          @spline-editor?
-         [se/spline-editor
+         [se/spline-editor*
           {:points (r/cursor track [@selected])
-           :style @style
-           :ranges @ranges
+           :styles @style
+           :ranges ranges
            :height @height
            :width @width}]
 
@@ -148,10 +147,10 @@
         (for [s [:gain :pan]]
           [:option {:key s :value (name s)} (name s)])]
 
-       [se/spline-editor
+       [se/spline-editor*
         {:points (r/cursor track [@selected])
-         :style @style
-         :ranges @ranges
+         :styles @style
+         :ranges ranges
          :height @height
          :width @width}]])))
 
@@ -190,6 +189,6 @@
                               :tracks (:tracks @state)})}
        "export"]]]))
 
-#_(r/render-component [main]
+(r/render-component [main]
                     (.getElementById js/document "app"))
 
