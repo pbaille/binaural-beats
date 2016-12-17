@@ -1,6 +1,9 @@
 (ns utils.core
   (:require #_cljsjs.d3
-            [rum.core :as rum]))
+    [rum.core :as rum]
+    [cljs.spec :as s]
+    [cljs.spec.test :as stest]
+    [clojure.test.check.generators :as gen]))
 
 ;; generics ------------------------------------------------
 
@@ -21,11 +24,6 @@
     mouse-position))
 
 (def p println)
-
-(defn mount [c id]
-  (r/render-component
-    c
-    (.getElementById js/document id)))
 
 ;; d3 ------------------------------------------------------
 
@@ -215,3 +213,67 @@
 
     nil))
 
+(defn rwrap2
+  ([build reactions]
+
+   (let [deps (map first reactions)
+         this (atom (apply build (map deref deps)))
+         propagating (atom nil)]
+     (add-watch this
+                :build
+                (fn [_ _ _ n]
+                  (when-not @propagating
+                    (reset! propagating true)
+                    (doseq [[dep upd] reactions]
+                      (swap! dep (or upd (fn [x _] x)) n))
+                    (reset! propagating false))))
+     (doseq [r deps]
+       (add-watch r
+                  (keyword (gensym))
+                  (fn [_ _ _ _]
+                    (when-not @propagating
+                      (reset! propagating true)
+                      (reset! this (apply build (map deref deps)))
+                      (reset! propagating false)))))
+     this))
+  ([build r1 & rs]
+   (rwrap2 build (cons r1 rs))))
+
+
+(let [atom? #(implements? IDeref %)
+      reaction (s/tuple atom? fn?)]
+
+  (s/fdef rwrap2
+          :args (s/cat :build fn?
+                       :reactions
+                       (s/or :reaction-vec (s/coll-of reaction)
+                             :reaction reaction)
+                       :variadic-reactions (s/* reaction))
+          :ret atom?))
+
+(stest/instrument `rwrap2)
+
+(comment
+  (add 1 2.1)
+  (let [dep1 (atom 10)
+        dep2 (atom 0)
+        this (rwrap2
+               (fn [d1 d2] {:a d1 :b d2})
+               [[dep1 (fn [_ v] (:a v))]
+                [dep2 (fn [_ v] (:b v))]])]
+
+    (p "<> (swap! this update :a inc) <>")
+    (swap! this update :a inc)
+
+    (p "<> (swap! dep1 inc) <>")
+    (swap! dep1 inc)
+
+    (p "<> (swap! dep2 dec) <>")
+    (swap! dep2 dec)
+
+    (assert (and
+              (= @dep1 12)
+              (= @dep2 -1)
+              (= @this {:a 12 :b -1})))
+
+    nil))

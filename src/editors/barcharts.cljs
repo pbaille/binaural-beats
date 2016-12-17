@@ -48,7 +48,7 @@
                    height
                    bar-width
                    dragged
-                   sync-fn
+                   on-change
                    styles
                    bar-margin
                    bar-max-height
@@ -84,7 +84,7 @@
         (on "mouseup"
             (fn []
               (reset! dragged false)
-              (sync-fn opts)))
+              (on-change opts)))
         (on "mousemove"
             (fn []
               (let [hover-changed? (hover-tracker opts)]
@@ -96,81 +96,79 @@
               (reset! hover nil)
               (upd opts))))))
 
-(defn initial-state [s]
-  (let [{:keys [points styles width height] :as opts}
+(defn init-internal-state [s]
+  (update s
+          :opts
+          assoc
+          :dragged (atom false)
+          :hover (atom nil)))
+
+(defn take-args [s]
+  (let [{:keys [points styles width height on-change]
+         :or {on-change identity}
+         }
         (first (:rum/args s))
         styles (u/merge-in default-styles styles)
         bar-margin (get-in styles [:bars :margin])]
-    (assoc s
-      :opts
-      {:styles styles
-       :points @points
-       :width width
-       :height height
-       :bar-width (/ (- width bar-margin) (count @points))
-       :bar-margin bar-margin
-       :bar-max-height (- height (* 2 bar-margin))
-       :dragged (atom false)
-       :hover (atom nil)
-       :sync-fn (fn [{ps :points}]
-                  (reset! points ps))})))
+    (update s
+            :opts
+            assoc
+            :styles styles
+            :points points
+            :width width
+            :height height
+            :bar-width (/ (- width bar-margin) (count points))
+            :bar-margin bar-margin
+            :bar-max-height (- height (* 2 bar-margin))
+            :on-change (fn [{ps :points}] (on-change ps)))))
 
-(defn initial-setup
-  [{{:keys [styles width height]} :opts :as s}]
-
+(defn init-base-elements [s]
   (let [node (rum/dom-node s)
 
         svg (.. d3
                 (select node)
-                (append "svg")
-                (attr "width" width)
-                (attr "height" height)
-                (call #(u/a&s % (:svg styles))))
+                (append "svg"))
 
-        g (.append svg "g")
+        g (.append svg "g")]
 
-        s (-> s
-              (assoc-in [:opts :svg] svg)
-              (assoc-in [:opts :node] node)
-              (assoc-in [:opts :g] g))]
+    (update s
+            :opts
+            assoc
+            :svg svg
+            :node node
+            :g g)))
 
-    (upd (:opts s))
-    s))
+(defn apply-base-styles [{{:keys [svg width height styles]} :opts :as s}]
+  (.. svg
+      (attr "width" width)
+      (attr "height" height)
+      (call #(u/a&s % (:svg styles))))
+  s)
 
-(defn sync-points [s]
-  (let [ps @(:points (first (:rum/args s)))
-        opts (:opts s)
-        s (-> s
-              (assoc-in [:opts :points] ps)
-              (assoc-in [:opts :bar-width]
-                        (/ (- (:width opts) (:bar-margin opts))
-                           (count ps))))]
-    (upd (:opts s))
-    s))
+(defn draw [s]
+  (upd (:opts s))
+  s)
+
+(defn should-update [old-state new-state]
+  (not= (dissoc (first (:rum/args old-state)) :on-change)
+        (dissoc (first (:rum/args new-state)) :on-change)))
 
 ;; component -------------------------------------------
 
-(rum/defcs barchart-editor <
-  {:will-mount initial-state
-   :did-mount initial-setup
-   :did-update sync-points}
-  rum/reactive
-  [_ opts]
-  (rum/react (:points opts))
+(rum/defc barchart-editor <
+  {:should-update should-update
+   :will-mount #(-> % take-args init-internal-state)
+   :did-mount #(-> % init-base-elements apply-base-styles draw)
+   :will-update #(-> % take-args apply-base-styles draw)}
+  [opts]
+  #_(println "barchart render")
   [:div.barchart-editor-wrap])
 
 ;; exemple ----------------------------------------------
 
-(comment
-
-  (def ps (atom [0 0.5 0.7 0.2]))
-
-  (comment (swap! ps conj 1))
-
-  (println @ps)
-
-  (rum/mount (barchart-editor {:points ps
-                               :styles (simple-styles "white" "pink")
-                               :height 200
-                               :width 800})
-             (.getElementById js/document "app")))
+#_(rum/mount (barchart-editor {:points [0 0.5 0.7 0.2]
+                             :on-change (fn [x] (println "on-change " x))
+                             :styles (simple-styles "white" "pink")
+                             :height 200
+                             :width 800})
+           (.getElementById js/document "app"))

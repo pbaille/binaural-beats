@@ -122,7 +122,8 @@
          @barchart-editor?
          [bce/barchart-editor
           {:s @selected
-           :points (r/cursor track [@selected])
+           :points (get @track @selected)
+           :on-change #(swap! track assoc @selected %)
            :styles @style
            :height @height
            :width @width}])])))
@@ -161,13 +162,18 @@
     [:div
      [:h1 "Binaural Beats Generator"]
 
-     [binaural-editor
-      {:track (r/cursor state [:tracks 0])
-       :settings (r/cursor state [:tracks-settings 0])}]
-
-     [noise-editor
-      {:track (r/cursor state [:tracks 1])
-       :settings (r/cursor state [:tracks-settings 1])}]
+     (for [[idx t] (map-indexed vector (:tracks @state))]
+       (condp = (:type t)
+         :binaural
+         ^{:key idx}
+         [binaural-editor
+          {:track (r/cursor state [:tracks idx])
+           :settings (r/cursor state [:tracks-settings idx])}]
+         :brown
+         ^{:key idx}
+         [noise-editor
+          {:track (r/cursor state [:tracks idx])
+           :settings (r/cursor state [:tracks-settings idx])}]))
 
      [:span "duration: "]
      [:input {:type "number"
@@ -189,6 +195,6 @@
                               :tracks (:tracks @state)})}
        "export"]]]))
 
-(r/render-component [main]
+#_(r/render-component [main]
                     (.getElementById js/document "app"))
 

@@ -36,7 +36,7 @@
   (swap! rs assoc :y [0 30]))
 
 
-(rum/mount
+#_(rum/mount
   (spline-wrap
     {:ranges rs
      :points ps})

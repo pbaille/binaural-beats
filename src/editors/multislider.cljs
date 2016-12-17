@@ -2,33 +2,36 @@
   (:require [utils.core :refer [d3 js>] :as u]
             [rum.core :as rum]))
 
-(defn mouse-upd [{:keys [svg selected width pad] :as opts}]
+(defn mouse-upd [{:keys [svg selected width pad on-drag on-select] :as opts}]
   (when @selected
-    (let [[x _] (js->clj (.mouse d3 (.node svg)))]
-      (assoc-in opts
-                [:points @selected]
-                ((u/bounder 0 1)
-                  (/ (- x pad) (- width (* 2 pad))))))))
+    (let [[x _] (js->clj (.mouse d3 (.node svg)))
+          new-point ((u/bounder 0 1)
+                      (/ (- x pad) (- width (* 2 pad))))
+          new-points (vec (sort (assoc (:points opts) @selected new-point)))
+          idx (u/index-of new-points new-point)
+          opts (assoc opts :points new-points)]
+      (when (not= idx @selected)
+        (reset! selected idx)
+        (on-select opts))
+      (when on-drag (on-drag opts))
+      opts)))
 
-#_(defn hover-tracker [{:keys [svg bar-width hover] :as opts}]
-    (when-let [[x y] (js->clj (.mouse d3 (.node svg)))]
-      (let [idx (js/Math.floor (/ x bar-width))]
-        (when-not (= idx @hover)
-          (reset! hover idx)))))
-
-(defn keydown [{:keys [points selected] :as opts}]
+(defn keydown [{:keys [points selected on-select] :as opts}]
   #_(println (.. d3 -event -keyCode))
   (let [c (count points)]
     (when-let [i @selected]
       (condp = (.. d3 -event -keyCode)
 
         8 (do (reset! selected (if (= (dec c) i) (dec i) i))
+              (on-select opts)
               (update opts :points u/rem-idx i))
 
         39 (do (swap! selected (fn [x] (mod (inc x) c)))
+               (on-select opts)
                opts)
 
         37 (do (swap! selected (fn [x] (mod (dec x) c)))
+               (on-select opts)
                opts)
 
         opts))))
@@ -65,11 +68,13 @@
                    line-height
                    width
                    dragged
-                   sync-fn
+                   on-change
+                   on-select
                    styles
                    pad
-                   hover
-                   selected]
+                   hovered
+                   selected
+                   hover]
             :as opts}]
 
   (let [circles (.. svg
@@ -90,7 +95,9 @@
 
         (merge circles)
         (attr "cx" (fn [[i x]] (+ pad (* x (- width (* 2 pad))))))
-        (on "mousedown" (fn [[i x]] (reset! selected i)))
+        (on "mousedown" (fn [[i x]] (reset! selected i) (on-select opts)))
+        (on "mouseenter" (fn [[i x]] (reset! hovered i)))
+        (on "mouseout" (fn [[i x]] (reset! hovered nil)))
         (each (fn [[i x]]
                 (this-as this
                   (.. d3
@@ -104,13 +111,19 @@
         (on "keydown"
             #(let [opts (keydown opts)]
                (upd opts)
-               (sync-fn opts))))
+               (on-change opts)))
+        #_(on "mousedown"
+            (fn []
+              (when-not @hover
+                (reset! selected nil)
+                (on-select opts)
+                (upd opts)))))
 
     (.. svg
         (on "mousedown"
             (fn []
               (.. svg (style "cursor" "none"))
-              (if @selected
+              (if (and @hovered @selected)
                 (do (reset! dragged true)
                     (upd (mouse-upd opts)))
                 (do (reset! selected (count points))
@@ -120,96 +133,107 @@
             (fn []
               (reset! dragged false)
               (.. svg (style "cursor" "inherit"))
-              (sync-fn opts)
+              (on-change opts)
               (upd opts)))
         (on "mousemove"
             (fn []
-              (let [hover-changed? false #_(hover-tracker opts)]
+              (let [hovered-changed? false #_(hovered-tracker opts)]
                 (cond
                   @dragged (upd (mouse-upd opts))
-                  hover-changed? (upd opts)))))
-        (on "mouseout"
+                  hovered-changed? (upd opts)))))
+        (on "mouseenter"
             (fn []
-              (reset! hover nil)
+              (reset! hover true)
+              (upd opts)))
+        (on "mouseleave"
+            (fn []
+              (reset! hover false)
               (upd opts))))))
 
-(defn initial-state [s]
-  (let [{:keys [points styles width] :as opts}
+(defn init-internal-state [s]
+  (update s
+          :opts
+          assoc
+          :dragged (atom false)
+          :selected (atom nil)
+          :hovered (atom nil)
+          :hover (atom nil)))
+
+(defn take-args [s]
+  (let [{:keys [points styles width on-change on-select on-drag]
+         :or {on-change identity
+              on-drag identity
+              on-select identity}}
         (first (:rum/args s))
         styles (u/merge-in default-styles styles)]
-    (assoc s
-      :opts
-      {:styles styles
-       :points @points
-       :width width
-       :line-height (-> styles :line :attrs :height)
-       :pad (get-in styles [:line :margin])
-       :dragged (atom false)
-       :selected (atom nil)
-       :hover (atom nil)
-       :sync-fn #(reset! points (:points %))})))
+    (update s
+            :opts
+            assoc
+            :styles styles
+            :points points
+            :width width
+            :line-height (-> styles :line :attrs :height)
+            :pad (get-in styles [:line :margin])
+            :on-select #(on-select @(:selected %) ((:points %) @(:selected %)))
+            :on-drag #(on-drag (:points %))
+            :on-change #(on-change (:points %)))))
 
-(defn initial-setup
-  [{{:keys [styles pad line-height width]} :opts :as s}]
-
+(defn init-base-elements [s]
   (let [node (rum/dom-node s)
+
         svg (.. d3
                 (select node)
                 (append "svg"))
-        s (-> s
-              (assoc-in [:opts :svg] svg)
-              (assoc-in [:opts :node] node))]
 
-    (.. svg
-        (attr "width" width)
-        (attr "height" (+ line-height (* 2 pad)))
-        (call #(u/a&s % (:svg styles)))
-        (append "rect")
-        (attr "x" pad)
-        (attr "y" pad)
-        (attr "width" (- width (* 2 pad)))
-        (call #(u/a&s % (:line styles))))
+        rect (.. svg (append "rect"))]
 
-    (upd (:opts s))
-    s))
+    (update s
+            :opts
+            assoc
+            :svg svg
+            :rect rect
+            :node node)))
 
-(defn sync-points [s]
-  (let [ps @(:points (first (:rum/args s)))
-        s (assoc-in s [:opts :points] ps)]
-    (upd (:opts s))
-    s))
+(defn apply-base-styles [{{:keys [svg pad line-height width styles rect]} :opts :as s}]
+  (.. svg
+      (attr "width" width)
+      (attr "height" (+ line-height (* 2 pad)))
+      (call #(u/a&s % (:svg styles))))
 
-(rum/defcs multislider <
-  {:will-mount initial-state
-   :did-mount initial-setup
-   :did-update sync-points}
-  rum/reactive
-  [_ opts]
-  (rum/react (:points opts))
+  (.. rect
+      (attr "x" pad)
+      (attr "y" pad)
+      (attr "width" (- width (* 2 pad)))
+      (call #(u/a&s % (:line styles))))
+  s)
+
+(defn draw [s]
+  (upd (:opts s))
+  s)
+
+(defn should-update [old-state new-state]
+  (not= (dissoc (update (first (:rum/args old-state))
+                        :points
+                        (fn [ps] (map (partial u/with-precision 2) ps)))
+                :on-change)
+        (dissoc (update (first (:rum/args new-state))
+                        :points
+                        (fn [ps] (map (partial u/with-precision 2) ps)))
+                :on-change)))
+
+(rum/defc multislider <
+  {:should-update should-update
+   :will-mount #(-> % take-args init-internal-state)
+   :did-mount #(-> % init-base-elements apply-base-styles draw)
+   :will-update #(-> % take-args apply-base-styles draw)}
+  [opts]
+  #_(println "render ms")
   [:div.multislider-editor-wrap])
 
-(def ps (atom [0 0.2 0.5 0.9 1]))
-(def p (atom 0.1))
-
-(comment (reset! ps [0 1])
-         (reset! p [0.5])
-         (println @ps @p))
-
-
-(rum/mount (let [dps (u/rwrap (fn [] (conj @ps @p))
-                                {ps (fn [_ v] (vec (butlast v)))
-                                 p (fn [_ v] (last v))})]
-             (multislider
-               {:points dps
-                :height 100
-                :width 800}))
+#_(rum/mount (multislider
+             {:points [0.1 0.5 0.9]
+              :on-change #(println "points changed: " %)
+              :sync-on-drag false
+              :height 100
+              :width 800})
            (.getElementById js/document "app"))
-
-(comment
-  (rum/build-ctor)
-  (.. d3
-      (select "#app")
-      (append "div")
-      (each (fn []))
-      (style "padding" (fn [x] (println "in pad" x) "20px"))
-      (style "background" "red")))

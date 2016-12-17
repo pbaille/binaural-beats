@@ -309,7 +309,7 @@
         :points (>> (rum/react points))
         :on-change #(reset! points (<< %))))))
 
-(do
+(comment
 
   (def ps (atom [[0 10] [5 6] [9 1]]))
   (def rs (atom {:x [0 10] :y [0 10]}))
