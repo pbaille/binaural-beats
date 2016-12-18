@@ -1,6 +1,8 @@
 (ns editors.multislider
+  (:require-macros [cljs.core.async.macros :refer [go-loop]])
   (:require [utils.core :refer [d3 js>] :as u]
-            [rum.core :as rum]))
+            [rum.core :as rum]
+            [cljs.core.async :as async]))
 
 (defn mouse-upd [{:keys [svg selected width pad on-drag on-select] :as opts}]
   (when @selected
@@ -113,11 +115,11 @@
                (upd opts)
                (on-change opts)))
         #_(on "mousedown"
-            (fn []
-              (when-not @hover
-                (reset! selected nil)
-                (on-select opts)
-                (upd opts)))))
+              (fn []
+                (when-not @hover
+                  (reset! selected nil)
+                  (on-select opts)
+                  (upd opts)))))
 
     (.. svg
         (on "mousedown"
@@ -151,13 +153,16 @@
               (upd opts))))))
 
 (defn init-internal-state [s]
-  (update s
-          :opts
-          assoc
-          :dragged (atom false)
-          :selected (atom nil)
-          :hovered (atom nil)
-          :hover (atom nil)))
+  (let [{:keys [in-chan out-chan]} (first (:rum/args s))]
+    (update s
+            :opts
+            assoc
+            :dragged (atom false)
+            :selected (atom nil)
+            :hovered (atom nil)
+            :hover (atom nil)
+            :out-chan out-chan
+            :in-chan in-chan)))
 
 (defn take-args [s]
   (let [{:keys [points styles width on-change on-select on-drag]
@@ -221,6 +226,16 @@
                         (fn [ps] (map (partial u/with-precision 2) ps)))
                 :on-change)))
 
+(defn listen [message-handler]
+  {:did-mount
+   (fn [s]
+     (let [{:keys [in-chan]} (first (:rum/args s))]
+       (go-loop []
+         (let [m (async/<! in-chan)]
+           (message-handler m)
+           (recur))))
+     s)})
+
 (rum/defc multislider <
   {:should-update should-update
    :will-mount #(-> % take-args init-internal-state)
@@ -231,9 +246,9 @@
   [:div.multislider-editor-wrap])
 
 #_(rum/mount (multislider
-             {:points [0.1 0.5 0.9]
-              :on-change #(println "points changed: " %)
-              :sync-on-drag false
-              :height 100
-              :width 800})
-           (.getElementById js/document "app"))
+               {:points [0.1 0.5 0.9]
+                :on-change #(println "points changed: " %)
+                :sync-on-drag false
+                :height 100
+                :width 800})
+             (.getElementById js/document "app"))

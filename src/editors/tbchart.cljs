@@ -60,8 +60,7 @@
   {:init init}
   r/reactive
   [s _]
-  (let [opts (:opts s)
-        {:keys [pos data selected]} opts
+  (let [{:keys [pos data selected]} (:opts s)
         p (r/react pos)
         d (r/react data)
         p* (fn [] (if @selected (nth (sort (keys @data)) @selected) p))]

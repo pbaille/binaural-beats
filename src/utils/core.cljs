@@ -69,8 +69,13 @@
 ;; colls -----------------------------------------------------
 
 (defn index-of [coll value]
-  (some (fn [[idx item]] (if (= value item) idx))
+  (some (fn [[idx item]] (when (= value item) idx))
         (map-indexed vector coll)))
+
+(defn indexes-of [coll value]
+  (keep
+    (fn [[idx item]] (when (= value item) idx))
+    (map-indexed vector coll)))
 
 (defn rem-idx [v idx]
   (vec (concat (subvec v 0 idx) (subvec v (inc idx)))))
