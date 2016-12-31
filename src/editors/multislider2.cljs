@@ -1,26 +1,9 @@
 (ns editors.multislider2
   (:require-macros [cljs.core.async.macros :refer [go-loop go]])
   (:require [utils.core :refer [d3 js>] :as u]
+            [utils.rum-mixins :as mixins]
             [rum.core :as rum]
             [cljs.core.async :as async]))
-
-(defn keydown [s]
-  (let [{:keys [dispatch points selected]} @s
-        c (count points)]
-    (when-let [i selected]
-      (condp = (.. d3 -event -keyCode)
-
-        8 (dispatch [:remove-point i])
-        39 (dispatch [:select-point (mod (inc selected) c)])
-        37 (dispatch [:select-point (mod (dec selected) c)])
-
-        nil))))
-
-(defn mouse-scaled-value [{:keys [pad width svg]}]
-  ((u/bounder 0 1)
-    (/ (- (first (js->clj (.mouse d3 (.node svg))))
-          pad)
-       (- width (* 2 pad)))))
 
 ;; styles -------------------------------------------------------------
 
@@ -47,6 +30,112 @@
    :line {:attrs {:fill c2}}
    :svg {:styles {:background c3}}})
 
+;; helpers -------------------------------------------------------------
+
+(defn keydown [s]
+  (let [{:keys [dispatch-sync points selected]} @s
+        c (count points)
+        i selected]
+    (when i
+      (condp = (.. d3 -event -keyCode)
+        8  (dispatch-sync [:remove-point i])
+        39 (dispatch-sync [:select-point (mod (inc selected) c)])
+        37 (dispatch-sync [:select-point (mod (dec selected) c)])
+        nil))))
+
+(defn mouse-scaled-value [{:keys [pad width svg]}]
+  ((u/bounder 0 1)
+    (/ (- (first (js->clj (.mouse d3 (.node svg))))
+          pad)
+       (- width (* 2 pad)))))
+
+(defn- comparable-args [s]
+  (dissoc (update (first (:rum/args s))
+                  :points
+                  (fn [ps] (map (partial u/with-precision 2) ps)))
+          :dispatch
+          :dispatch-sync
+          :notify
+          :in-chan
+          :out-chan))
+
+;; actions and notifications ------------------------------------------
+
+(def actions
+  {:select-point
+   (fn [s idx]
+     (assoc s :selected idx))
+
+   :move-point
+   (fn [s idx value]
+     ;; still a bit buggy when points are crossing
+     (let [ret (update s :points #(-> % (assoc idx value) sort vec))
+           mv-right (> value (get (:points s) idx))
+           idx (if mv-right
+                 (last (u/indexes-of (:points ret) (get (:points ret) (:selected ret))))
+                 (u/index-of (:points ret) (get (:points ret) (:selected ret))))]
+       (when-not (= (:selected s) idx)
+           ((:dispatch s) [:select-point idx]))
+       ret))
+   #_(fn [s idx value]
+       ;; still a bit buggy when points are crossing
+       (let [ret (update s :points #(-> % (assoc idx value) sort vec))
+             mv-right (> value (get (:points s) idx))
+             crossing? (second (u/indexes-of (:points ret) (get (:points ret) (:selected ret))))
+             idx (if mv-right
+                   (last (u/indexes-of (:points ret) (get (:points ret) (:selected ret))))
+                   (u/index-of (:points ret) (get (:points ret) (:selected ret))))]
+         (when-not (= (:selected s) idx)
+           ((:dispatch s)
+             [:select-point idx]
+             [:move-point idx value]))
+         ret))
+
+   :add-point
+   (fn [s value]
+     (let [ret (update s :points #(-> % (conj value) sort vec))
+           idx (u/index-of (:points ret) (get (:points ret) (:selected ret)))]
+       (when-not (= (:selected s) idx)
+         ((:dispatch s) [:select-point idx]))
+       ret))
+
+   :remove-point
+   (fn [s idx]
+     (let [c (count (:points s))
+           sel-value (get (:points s) (:selected s))
+           sel? (= idx (:selected s))
+           ret (update s :points u/rem-idx idx)
+           sel-idx (if sel?
+                     (if (= (dec c) idx) (dec idx) idx)
+                     (u/index-of (:points ret) sel-value))]
+       (when-not (= (:selected s) sel-idx)
+         ((:dispatch s) [:select-point sel-idx]))
+       ret))
+
+   :set-dragged (fn [s v] (assoc s :dragged v))
+   :set-hovered (fn [s v] (assoc s :hovered v))
+   :set-hover (fn [s v] (assoc s :hover v))
+   })
+
+(def notifications
+  {:select-point
+   (fn [s idx]
+     [:selected-point (:points s) idx])
+
+   :move-point
+   (fn [s idx value]
+     (if (:dragged s)
+       [:dragged-point (:points s) idx value]
+       [:moved-point (:points s) idx value]))
+
+   :add-point
+   (fn [s value]
+     [:added-point (:points s) value])
+
+   :remove-point
+   (fn [s idx]
+     [:removed-point (:points s) idx])})
+
 ;; lifecycle -----------------------------------------------------------
 
 (defn upd [s]
@@ -57,8 +146,7 @@
                 width
                 styles
                 pad
-                dispatch
-                hovered]} @s
+                dispatch-sync]} @s
 
         circles (.. svg
                     (selectAll "circle")
@@ -70,19 +158,42 @@
                               (:points styles)))]
 
     (.. circles
+
         enter
+
         (append "circle")
         (attr "cx" (fn [[i x]] (+ pad (* x (- width (* 2 pad))))))
         (attr "cy" (+ (/ line-height 2) pad))
         (call #(u/a&s % (:points styles)))
 
         (merge circles)
-        (attr "cx" (fn [[i x]] (+ pad (* x (- width (* 2 pad))))))
-        (on "mousedown" (fn [[i x]] (swap! s assoc :dragged true) (dispatch [:select-point i])))
-        (on "mouseup" (fn [[i x]] (swap! s assoc :dragged nil) (upd s)))
-        (on "mouseenter" (fn [[i x]] (when-not (:dragged @s) (swap! s assoc :hovered i) (upd s))))
-        (on "mouseout" (fn [[i x]] (swap! s assoc :hovered nil) (upd s)))
-        (each (fn [[i x]]
+
+        (attr "cx"
+              (fn [[i x]]
+                (+ pad (* x (- width (* 2 pad))))))
+
+        (on "mousedown"
+            (fn [[i _]]
+              (dispatch-sync
+                [:set-dragged true]
+                [:select-point i])))
+
+        (on "mouseup"
+            (fn [[i x]]
+              (when (:dragged @s)
+                (dispatch-sync
+                  [:set-dragged nil]
+                  [:move-point (:selected @s) (mouse-scaled-value @s)]))))
+
+        (on "mouseenter"
+            (fn [[i _]]
+              (when-not (:dragged @s)
+                (dispatch-sync [:set-hovered i]))))
+
+        (on "mouseout"
+            #(dispatch-sync [:set-hovered nil]))
+
+        (each (fn [[i _]]
                 (this-as this
                   (.. d3
                       (select this)
@@ -99,42 +210,41 @@
         (on "mousedown"
             (fn []
               (.. svg (style "cursor" "none"))
-              (if (and (:dragged @s) (:selected @s))
-                (dispatch [:move-point
-                           (:selected @s)
-                           (mouse-scaled-value @s)])
-                (dispatch [:add-point
-                           (mouse-scaled-value @s)]))))
+              (when-not (and (:dragged @s) (:selected @s))
+                (let [v (mouse-scaled-value @s)
+                      idx (count (take-while (partial > v) (:points @s)))]
+                  (dispatch-sync
+                    [:add-point v]
+                    [:set-dragged true]
+                    [:select-point idx])))))
+
         (on "mouseup"
             (fn []
               (.. svg (style "cursor" "inherit"))))
+
         (on "mousemove"
             (fn []
               (when (:dragged @s)
-                (dispatch [:move-point
-                           (:selected @s)
-                           (mouse-scaled-value @s)]))))
+                (dispatch-sync
+                  [:move-point
+                   (:selected @s)
+                   (mouse-scaled-value @s)]))))
+
         (on "mouseenter"
-            (fn []
-              (swap! s assoc :hover true)
-              (upd s)))
+            #(dispatch-sync [:set-hover true]))
+
         (on "mouseleave"
-            (fn []
-              (swap! s assoc :hover false)
-              (upd s))))))
+            #(dispatch-sync [:set-hover false])))))
 
 (defn init-internal-state [s]
-  (let [{:keys [in-chan out-chan]} (first (:rum/args s))]
-    (swap!
-      (:state s)
-      assoc
-      {:dragged false
-       :selected nil
-       :hovered nil
-       :hover nil
-       :send #(go (async/>! out-chan %))
-       :in-chan in-chan})
-    s))
+  (swap!
+    (:state s)
+    assoc
+    :dragged false
+    :selected nil
+    :hovered nil
+    :hover nil)
+  s)
 
 (defn take-args [s]
   (let [{:keys [points styles width]}
@@ -188,99 +298,15 @@
   s)
 
 (defn should-update [old-state new-state]
-  (not= (dissoc (update (first (:rum/args old-state))
-                        :points
-                        (fn [ps] (map (partial u/with-precision 2) ps)))
-                :in-chan
-                :out-chan)
-        (dissoc (update (first (:rum/args new-state))
-                        :points
-                        (fn [ps] (map (partial u/with-precision 2) ps)))
-                :in-chan
-                :out-chan)))
-
-(defn notify [s m]
-  ((:notify s) m))
-
-(defn dispatcher [state actions notifs then]
-  (fn [[type & args]]
-    (let [action (get actions type)
-          notif (get notifs type)
-          notif (if (fn? notif)
-                  notif
-                  (fn [s & xs] (into [notif s] xs)))]
-      (swap! state #(apply action % args))
-      (notify @state (apply notif @state args))
-      ((or then identity) state))))
-
-(defn dispatch [s m]
-  (go (async/>! (:in-chan s) m)))
-
-(def actions
-  {:select-point
-   (fn [s idx] (assoc s :selected idx))
-
-   :move-point
-   (fn [s idx value]
-     (let [ret (update s :points #(-> % (assoc idx value) sort vec))
-           mv-right (>= value (get (:points s) idx))
-           idx (if mv-right
-                 (last (u/indexes-of (:points ret) (get (:points ret) (:selected ret))))
-                 (u/index-of (:points ret) (get (:points ret) (:selected ret))))]
-       (when-not (= (:selected s) idx)
-         (dispatch s [:select-point idx]))
-       ret))
-
-   :add-point
-   (fn [s value]
-     (let [ret (update s :points #(-> % (conj value) sort vec))
-           idx (u/index-of (:points ret) (get (:points ret) (:selected ret)))]
-       (when-not (= (:selected s) idx)
-         (dispatch s [:select-point idx]))
-       ret))
-
-   :remove-point
-   (fn [s idx]
-     (let [c (count (:points s))
-           sel-value (get (:points s) (:selected s))
-           sel? (= idx (:selected s))
-           ret (update s :points u/rem-idx idx)
-           sel-idx (if sel?
-                     (if (= (dec c) idx) (dec idx) idx)
-                     (u/index-of (:points ret) sel-value))]
-       (when-not (= (:selected s) sel-idx)
-         (dispatch s [:select-point sel-idx]))
-       ret))})
-
-(def notifications
-  {:select-point (fn [s idx] [:selected-point idx])
-   :move-point :moved-point
-   :add-point :added-point
-   :remove-point (fn [s idx] [:removed-point idx "yop"])})
-
-(defn slave [actions notifications]
-  {:init
-   (fn [s]
-     (let [s (assoc s :state (atom nil))
-           dispatch (dispatcher (:state s) actions notifications upd)
-           {:keys [in-chan out-chan]} (first (:rum/args s))]
-
-       (swap! (:state s)
-              assoc
-              :dispatch dispatch
-              :in-chan in-chan
-              :out-chan out-chan
-              :notify #(go (async/>! out-chan %)))
-
-       (go-loop []
-                (let [m (async/<! in-chan)]
-                  (dispatch m)
-                  (recur)))
-
-       s))})
+  (not= (comparable-args old-state)
+        (comparable-args new-state)))
 
 (rum/defc multislider <
-  (slave actions notifications)
+  (mixins/slave
+    {:actions actions
+     :notifications notifications
+     ;:before #(println %2)
+     :after #(upd %1)})
   {:should-update should-update
    :will-mount #(-> % init-internal-state take-args)
    :did-mount #(-> % init-base-elements apply-base-styles draw)
@@ -291,9 +317,9 @@
 (let [out-chan (async/chan)
       in-chan (async/chan)]
   (go-loop []
-           (let [m (async/<! out-chan)]
-             (println (first m))
-             (recur)))
+             (let [m (async/<! out-chan)]
+               #_(println m)
+               (recur)))
 
   (rum/mount (multislider
                {:points [0.1 0.5 0.9]

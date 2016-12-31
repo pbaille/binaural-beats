@@ -1,7 +1,10 @@
 (ns editors.tbchart
-  (:require [rum.core :as r]
+  (:require-macros [cljs.core.async.macros :refer [go-loop go]])
+  (:require [cljs.core.async :as async :refer [chan >! <!]]
+            [rum.core :as r]
             [editors.barcharts :as bc]
             [editors.multislider :as ms]
+            [editors.multislider2 :as ms2]
             [utils.core :as u]
             [clojure.set :refer [superset? subset? difference]]))
 
@@ -78,6 +81,43 @@
         :width 500
         :height 150})
      (ms/multislider
+       {:points [(p*)]
+        :on-change #(reset! pos (first %))
+        :on-select #(reset! selected nil)
+        :on-drag #(reset! pos (first %))
+        :height 100
+        :width 500})]))
+
+(defn init2 [s]
+  (update s
+          :opts
+          assoc
+          :pos (atom (or (-> s :rum/args first :pos) 0))
+          :data (atom (-> s :rum/args first :data))
+          :ms1-chans {:in (chan) :out (chan)}
+          :ms2-chans {:in (chan) :out (chan)}))
+
+(r/defcs editor2
+  <
+  {:init init2}
+  [s _]
+  (let [{:keys [pos data selected]} (:opts s)
+        p (r/react pos)
+        d (r/react data)
+        p* (fn [] (if @selected (nth (sort (keys @data)) @selected) p))]
+    [:div.tlbchart
+     (ms2/multislider
+       {:points (vec (sort (map key d)))
+        :in-chan
+        :out-chan
+        :height 100
+        :width 500})
+     (bc/barchart-editor
+       {:points (interpolate-points d (p*))
+        :on-change (fn [ps] (swap! data assoc (p*) ps))
+        :width 500
+        :height 150})
+     (ms2/multislider
        {:points [(p*)]
         :on-change #(reset! pos (first %))
         :on-select #(reset! selected nil)
