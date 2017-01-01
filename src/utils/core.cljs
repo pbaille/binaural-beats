@@ -80,6 +80,9 @@
 (defn rem-idx [v idx]
   (vec (concat (subvec v 0 idx) (subvec v (inc idx)))))
 
+(defn vinsert [v idx & vls]
+  (vec (concat (subvec v 0 idx) vls (subvec v idx))))
+
 (letfn [(merge-in* [a b]
           (if (map? a)
             (merge-with merge-in* a b)

@@ -4,7 +4,7 @@
             [rum.core :as r]
             [editors.barcharts :as bc]
             [editors.multislider :as ms]
-            [editors.multislider2 :as ms2]
+            [editors.multislider :as ms2]
             [utils.core :as u]
             [clojure.set :refer [superset? subset? difference]]))
 

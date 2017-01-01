@@ -1,7 +1,8 @@
 (ns utils.rum-mixins
   (:require-macros [cljs.core.async.macros :refer [go-loop go]])
   (:require [cljs.core.async :as async :refer [chan >! <!]]
-            [rum.core :as rum]))
+            [rum.core :as rum]
+            [utils.core :as u]))
 
 ;; slave
 ;; --------------------------------------------------------------
