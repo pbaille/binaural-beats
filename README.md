@@ -1,26 +1,6 @@
 # Binaural Beats Generator
 
-## Features 
-
-- frequency over time edition 
-- delta over time edition
-- envelope edition
-- pink noise layer
-- live play
-- export WAV (if your browsers supports offlineAudioContext)
-
-## Dev
-
-lein run -m clojure.main script/fig.clj
-
-visit localhost:5000
-
-## Prod
-
-lein cljsbuild once min
-
-open resources/public/prod.html
-
+#### In development...
 
 ## License
                                
