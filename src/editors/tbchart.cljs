@@ -8,11 +8,6 @@
             [utils.core :as u]
             [clojure.set :refer [superset? subset? difference]]))
 
-(def sample
-  [[0 [0.1 0.6 0.8]]
-   [0.5 [0.2 0.4 0.6]]
-   [1 [1 0.2 0.8]]])
-
 (defn interpolate-points [data pos]
   #_(println "interpolate points" data)
   (let [sorted (sort-by key data)]
@@ -29,27 +24,6 @@
                 (fn [[x0 x1]]
                   (u/scale-range pos p0 p1 x0 x1))
                 (map vector xs0 xs1))))))
-
-(defn xdata-change [data xs]
-  (let [data-keys (set (map key data))]
-    (if (not= (count data) (count xs))
-      (cond
-        (subset? data-keys (set xs))
-        (let [x (first (difference (set xs) data-keys))]
-          (assoc data x (interpolate-points data x)))
-
-        (superset? data-keys (set xs))
-        (dissoc data (first (difference data-keys (set xs))))
-
-        :else (do (println "several xs have changed :s" data-keys xs) data))
-
-      (let [new-x (first (difference (set xs) data-keys))
-            old-x (first (difference data-keys (set xs)))]
-        (if (and new-x old-x)
-          (assoc (dissoc data old-x)
-            new-x
-            (get data old-x))
-          data)))))
 
 (defn init [s]
   (let [ms1-in (chan)
@@ -107,7 +81,6 @@
                  (do (reset! pos* a3)
                      (>! bc-in [[:set-points (interpolate-points @data* @pos*)]]))
 
-                 ;do nothing in other cases
                  nil)
                (recur)))
 
@@ -132,7 +105,7 @@
     #_(println "render" p d)
     [:div.tlbchart
      (ms2/multislider
-       {:points (vec (map key d))
+       {:points (mapv key d)
         :in-chan (:in ms1-chans)
         :out-chan (:out ms1-chans)
         :height 100
@@ -151,7 +124,11 @@
         :max-points-count 1
         :width 500})]))
 
+;; test --------------------------------------------------------------
+
 (.clear js/console)
 (r/mount
-  (editor {:pos 0.7 :data sample})
+  (editor {:pos 0.7 :data [[0 [0.1 0.6 0.8]]
+                           [0.5 [0.2 0.4 0.6]]
+                           [1 [1 0.2 0.8]]]})
   (.getElementById js/document "app"))
