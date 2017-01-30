@@ -8,7 +8,8 @@
 ;; helpers --------------------------------------------
 
 (defn mouse-pos [svg]
-  (js->clj (.mouse d3 (.node svg))))
+  (try (js->clj (.mouse d3 (.node svg)))
+       (catch :default e [0 0])))
 
 (defn move-point-args [{:keys [svg bar-width bar-margin bar-max-height]}]
   (let [[x y] (mouse-pos svg)]
@@ -31,6 +32,7 @@
 
 ;; styles ----------------------------------------------
 
+
 (def default-styles
   {:bars {:attrs {:fill "white"
                   :opacity "0.3"
@@ -51,7 +53,11 @@
 ;; actions and notifs -----------------------------------
 
 (def actions
-  {:move-point
+  {:set-points
+   (fn [s ps]
+     (assoc s :points ps))
+
+   :move-point
    (fn [s [idx value]]
      (assoc-in s [:points idx] value))
    :add-point
@@ -81,11 +87,9 @@
 
 (def notifications
   {:move-point (fn [s idx value] [:point-moved (:points s) idx value])
+   :set-dragged (fn [s idx] [:set-dragged (:points s) idx])
    :add-point (fn [s idx value] [:point-added (:points s) idx value])
-   :remove-point (fn [s idx] [:point-removed (:points s) idx])
-   :set-hover (fn [_ v] [:hover v])
-   :set-dragged (fn [_ v] [:dragged v])
-   :set-mouse-in (fn [_ v] [:mouse-in v])})
+   :remove-point (fn [s idx] [:point-removed (:points s) idx])})
 
 ;; controls --------------------------------------------
 
@@ -305,7 +309,7 @@
 
 ;; example ----------------------------------------------
 
-(let [out-chan (async/chan)
+#_(let [out-chan (async/chan)
       in-chan (async/chan)]
   (go-loop []
            (let [m (async/<! out-chan)]

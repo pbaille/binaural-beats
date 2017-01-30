@@ -3,7 +3,7 @@
 
 (ra/start-figwheel!
   {:figwheel-options {:css-dirs ["resources/public/css"]
-                      :server-port 5000}
+                      :server-port 5005}
    :build-ids ["dev"]
    :all-builds
                      [{:id "dev"

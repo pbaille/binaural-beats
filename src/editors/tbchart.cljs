@@ -2,26 +2,19 @@
   (:require-macros [cljs.core.async.macros :refer [go-loop go]])
   (:require [cljs.core.async :as async :refer [chan >! <!]]
             [rum.core :as r]
-            [editors.barcharts :as bc]
+            [editors.barchart :as bc]
             [editors.multislider :as ms]
             [editors.multislider :as ms2]
             [utils.core :as u]
             [clojure.set :refer [superset? subset? difference]]))
 
 (def sample
-  {0 [0.1 0.6 0.8]
-   0.5 [0.2 0.4 0.6]
-   1 [1 0.2 0.8]})
-
-(defn init [s]
-  (update s
-          :opts
-          assoc
-          :selected (atom nil)
-          :pos (atom (or (-> s :rum/args first :pos) 0))
-          :data (atom (-> s :rum/args first :data))))
+  [[0 [0.1 0.6 0.8]]
+   [0.5 [0.2 0.4 0.6]]
+   [1 [1 0.2 0.8]]])
 
 (defn interpolate-points [data pos]
+  #_(println "interpolate points" data)
   (let [sorted (sort-by key data)]
     (cond
       (<= pos (ffirst sorted)) (second (first sorted))
@@ -58,74 +51,107 @@
             (get data old-x))
           data)))))
 
-(r/defcs editor
-  <
-  {:init init}
-  r/reactive
+(defn init [s]
+  (let [ms1-in (chan)
+        ms1-out (chan)
+        ms2-in (chan)
+        ms2-out (chan)
+        bc-in (chan)
+        bc-out (chan)
+        pos* (atom (or (-> s :rum/args first :pos) 0))
+        data* (atom (-> s :rum/args first :data))
+        selected* (atom (-> s :rum/args first :selected))
+        s (update s
+                  :opts
+                  assoc
+                  :pos pos*
+                  :data data*
+                  :selected selected*
+                  :ms1-chans {:in ms1-in :out ms1-out}
+                  :ms2-chans {:in ms2-in :out ms2-out}
+                  :bc-chans {:in bc-in :out bc-out})]
+
+    (go-loop []
+             (let [[v & [a1 a2 a3 :as args] :as m] (<! ms1-out)]
+               #_(println "ms1: " m)
+               (condp = v
+                 :selected-point
+                 (do (reset! selected* a2)
+                     (>! ms2-in [[:blur]
+                                 [:move-point 0 (get a1 a2)]]))
+
+                 :added-point
+                 (swap! data* (fn [d] (conj d [a2 (interpolate-points d a2)])))
+
+                 :dragged-point
+                 (do (swap! data* assoc-in [a2 0] a3)
+                     (>! ms2-in [[:move-point 0 (get a1 a2)]]))
+
+                 nil)
+               (recur)))
+
+    (go-loop []
+             (let [[v & [a1 a2 a3 :as args] :as m] (<! ms2-out)]
+               #_(println "ms2: " m)
+               (condp = v
+                 ;when ms2 selection, unselect ms1
+                 :selected-point
+                 (>! ms1-in [[:blur]])
+
+                 ;when ms2 moved,
+                 :dragged-point
+                 (do (reset! pos* a3)
+                     (>! bc-in [[:set-points (interpolate-points @data* @pos*)]]))
+
+                 :moved-point
+                 (do (reset! pos* a3)
+                     (>! bc-in [[:set-points (interpolate-points @data* @pos*)]]))
+
+                 ;do nothing in other cases
+                 nil)
+               (recur)))
+
+    (go-loop []
+             (let [[v & [a1 a2 a3 :as args] :as m] (<! bc-out)]
+               (condp = v
+                 :set-dragged
+                 (when-not a2
+                   (if @selected*
+                     (swap! data* assoc-in [@selected* 1] a1)
+                     (swap! data* conj [@pos* a1])))
+                 nil)
+               (recur)))
+    s))
+
+
+(r/defcs editor < {:init init} r/reactive
   [s _]
-  (let [{:keys [pos data selected]} (:opts s)
+  (let [{:keys [pos data ms1-chans ms2-chans bc-chans]} (:opts s)
         p (r/react pos)
-        d (r/react data)
-        p* (fn [] (if @selected (nth (sort (keys @data)) @selected) p))]
+        d (r/react data)]
+    #_(println "render" p d)
     [:div.tlbchart
-     (ms/multislider
-       {:points (vec (sort (map key d)))
-        :on-change #(swap! data xdata-change %)
-        :on-drag #(swap! data xdata-change %)
-        :on-select #(reset! selected %)
+     (ms2/multislider
+       {:points (vec (map key d))
+        :in-chan (:in ms1-chans)
+        :out-chan (:out ms1-chans)
         :height 100
         :width 500})
      (bc/barchart-editor
-       {:points (interpolate-points d (p*))
-        :on-change (fn [ps] (swap! data assoc (p*) ps))
-        :width 500
-        :height 150})
-     (ms/multislider
-       {:points [(p*)]
-        :on-change #(reset! pos (first %))
-        :on-select #(reset! selected nil)
-        :on-drag #(reset! pos (first %))
-        :height 100
-        :width 500})]))
-
-(defn init2 [s]
-  (update s
-          :opts
-          assoc
-          :pos (atom (or (-> s :rum/args first :pos) 0))
-          :data (atom (-> s :rum/args first :data))
-          :ms1-chans {:in (chan) :out (chan)}
-          :ms2-chans {:in (chan) :out (chan)}))
-
-(r/defcs editor2
-  <
-  {:init init2}
-  [s _]
-  (let [{:keys [pos data selected]} (:opts s)
-        p (r/react pos)
-        d (r/react data)
-        p* (fn [] (if @selected (nth (sort (keys @data)) @selected) p))]
-    [:div.tlbchart
-     (ms2/multislider
-       {:points (vec (sort (map key d)))
-        :in-chan
-        :out-chan
-        :height 100
-        :width 500})
-     (bc/barchart-editor
-       {:points (interpolate-points d (p*))
-        :on-change (fn [ps] (swap! data assoc (p*) ps))
+       {:points (interpolate-points d p)
+        :in-chan (:in bc-chans)
+        :out-chan (:out bc-chans)
         :width 500
         :height 150})
      (ms2/multislider
-       {:points [(p*)]
-        :on-change #(reset! pos (first %))
-        :on-select #(reset! selected nil)
-        :on-drag #(reset! pos (first %))
+       {:points [p]
+        :in-chan (:in ms2-chans)
+        :out-chan (:out ms2-chans)
         :height 100
+        :max-points-count 1
         :width 500})]))
 
+(.clear js/console)
 (r/mount
-  (editor {:pos 0.5 :data sample})
+  (editor {:pos 0.7 :data sample})
   (.getElementById js/document "app"))
-

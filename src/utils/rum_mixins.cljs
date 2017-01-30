@@ -18,7 +18,7 @@
 (defn- parse-notif [n]
   (if (fn? n)
     n
-    (fn [s & xs] (into [n s] xs))))
+    (fn [s & xs] (into [n] xs))))
 
 (defn dispatcher [state {:keys [actions notifications after before]
                          :or {before identity

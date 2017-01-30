@@ -74,9 +74,19 @@
 ;; actions and notifications ------------------------------------------
 
 (def actions
-  {:select-point
+  {:set-points
+   (fn [s ps]
+     (assoc s :points ps))
+
+
+   :select-point
    (fn [s idx]
      (assoc s :selected idx))
+
+   :blur
+   (fn [s]
+     (assoc s :selected nil))
+
 
    :move-point
    (fn [s idx value]
@@ -84,9 +94,15 @@
 
    :add-point
    (fn [s value]
-     (let [ret (update s :points conj value)]
-       ((:dispatch s) [:select-point (count (:points s))])
-       ret))
+     #_(println "add-point "
+                (:max-points-count s)
+                (count (:points s))
+                (< (:max-points-count s) (count (:points s))))
+     (if (> (:max-points-count s) (count (:points s)))
+       (let [ret (update s :points conj value)]
+         #_((:dispatch s) [:select-point (count (:points s))] [:set-dragged true])
+         ret)
+       s))
 
    :remove-point
    (fn [s idx]
@@ -101,17 +117,14 @@
          ((:dispatch s) [:select-point sel-idx]))
        ret))
 
+
    :set-dragged (fn [s v] (assoc s :dragged v))
    :set-hovered (fn [s v] (assoc s :hovered v))
    :set-hover (fn [s v] (assoc s :hover v))
    })
 
 (def notifications
-  {:select-point
-   (fn [s idx]
-     [:selected-point (:points s) idx])
-
-   :move-point
+  {:move-point
    (fn [s idx value]
      (if (:dragged s)
        [:dragged-point (:points s) idx value]
@@ -123,7 +136,16 @@
 
    :remove-point
    (fn [s idx]
-     [:removed-point (:points s) idx])})
+     [:removed-point (:points s) idx])
+
+   :blur
+   (fn [s] [:blur])
+
+   :select-point
+   (fn [s idx]
+     (if idx
+       [:selected-point (:points s) idx]
+       [:none]))})
 
 ;; lifecycle -----------------------------------------------------------
 
@@ -172,7 +194,7 @@
               (when (:dragged @s)
                 (dispatch-sync
                   [:set-dragged nil]
-                  [:move-point (:selected @s) (mouse-scaled-value @s)]))))
+                  #_[:move-point (:selected @s) (mouse-scaled-value @s)]))))
 
         (on "mouseenter"
             (fn [[i _]]
@@ -190,10 +212,11 @@
 
     (.. circles exit remove)
 
-    (.. d3
-        (select js/window)
-        (on "keydown"
-            #(keydown s)))
+    (when (:selected @s)
+      (.. d3
+          (select js/window)
+          (on "keydown"
+              #(keydown s))))
 
     (.. svg
         (on "mousedown"
@@ -201,11 +224,12 @@
               (.. svg (style "cursor" "none"))
               (when-not (and (:dragged @s) (:selected @s))
                 (let [v (mouse-scaled-value @s)
-                      idx (count (take-while (partial > v) (:points @s)))]
-                  (dispatch-sync
-                    [:add-point v]
-                    [:set-dragged true]
-                    [:select-point idx])))))
+                      idx (count (:points @s))]
+                  (when (> (:max-points-count @s) idx)
+                    (dispatch-sync
+                      [:add-point v]
+                      [:select-point idx]
+                      [:set-dragged true]))))))
 
         (on "mouseup"
             (fn []
@@ -236,7 +260,7 @@
   s)
 
 (defn take-args [s]
-  (let [{:keys [points styles width]}
+  (let [{:keys [points styles width max-points-count]}
         (first (:rum/args s))
         styles (u/merge-in default-styles styles)]
 
@@ -246,6 +270,7 @@
                :styles styles
                :points points
                :width width
+               :max-points-count (or max-points-count js/Infinity)
                :line-height (-> styles :line :attrs :height)
                :pad (get-in styles [:line :margin]))))
     s))
@@ -303,18 +328,27 @@
   [opts]
   [:div.multislider-editor-wrap])
 
-(let [out-chan (async/chan)
-      in-chan (async/chan)]
+;; test zone -----------------------------------------------------------------
 
-  (go-loop []
-           (println (async/<! out-chan))
-           (recur))
+(def in-chan (async/chan))
+(def out-chan (async/chan))
 
-  (rum/mount (multislider
-               {:points [0.1 0.5 0.9]
-                :out-chan out-chan
-                :in-chan in-chan
-                :height 100
-                :width 500})
-             (.getElementById js/document "app")))
+(go-loop []
+         (println (async/<! out-chan))
+         (recur))
+
+(rum/defc test-ms
+  []
+  [:div
+   [:button {:on-click #(go (async/>! in-chan [[:set-points [0 0.5 1]]]))}]
+   (multislider
+     {:points [0.1 0.5 0.9]
+      :out-chan out-chan
+      :in-chan in-chan
+      :height 100
+      :width 500})])
+
+(.clear js/console)
+(rum/mount (test-ms)
+             (.getElementById js/document "app"))
 

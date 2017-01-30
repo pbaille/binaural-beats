@@ -3,7 +3,7 @@
   (:require [reagent.core :as r :refer [atom]]
             [audio.core :as audio]
             [editors.spline :as se]
-            [editors.barcharts :as bce]
+            [editors.barchart :as bce]
             [utils.core :as u :refer [tval]]
             [utils.colors :refer [palettes]]
             [cljs.pprint :refer [pprint]]
@@ -195,6 +195,6 @@
                               :tracks (:tracks @state)})}
        "export"]]]))
 
-#_(r/render-component [main]
+(r/render-component [main]
                     (.getElementById js/document "app"))
 
