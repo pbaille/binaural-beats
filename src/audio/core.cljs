@@ -2,12 +2,7 @@
   (:require [cljs-bach.synthesis :as s]
             [utils.core :as u]))
 
-(defn tl
-  "timeline"
-  [s]
-  (if (number? s)
-    [[0 s]]
-    s))
+;; aliases --------------------------------------
 
 (defn linear-to [x v at]
   (.linearRampToValueAtTime x v at))
@@ -17,6 +12,8 @@
 
 (defn set-val-at [x v at]
   (.setValueAtTime x v at))
+
+;; custom osc -------------------------------------------
 
 (defn tlmod [{:keys [interp-type tl path]}]
   (fn [this]
@@ -32,6 +29,7 @@
         tl))))
 
 (defn custom-osc
+  "have to test this... maybe broken"
   [{:keys [wavetable fqs interp-type]}]
   (fn [context at duration]
     (let [[real imag] wavetable
@@ -50,7 +48,46 @@
       (fmod osc)
       (s/source osc))))
 
-(defn trem [{:keys [min max f]}]
+;; nodes -------------------------------------------
+
+(defn osc-line
+  "type: sine | square | sawtooth | triangle
+   init: initial frequency
+   points: frequency timeline ex: [[t1 f1][t2 f2]]"
+  [{:keys [init points type]}]
+  (fn [context at duration]
+    (let [osc (.createOscillator context)]
+      (.. osc -frequency (setValueAtTime init at))
+      (aset osc "type" (or type "sine"))
+      (.start osc at)
+      (.stop osc (+ duration at))
+      (mapv (fn [[x y]] (.. osc -frequency (linearRampToValueAtTime y (+ at x)))) points)
+      (s/source osc))))
+
+(defn envelop
+  "corners: gain timeline ex: [[t1 g1][t2 g2]]"
+  [corners]
+  (fn [context at duration]
+    (let [audio-node (.createGain context)]
+      (.. audio-node -gain (setValueAtTime 0 at))
+      (mapv (fn [[x y]] (.. audio-node -gain (linearRampToValueAtTime y (+ at x)))) corners)
+      (s/subgraph audio-node))))
+
+(defn pans
+  "corners: pan timeline ex: [[t1 p1][t2 p2]]
+   pan value must be in [0 .. 1]"
+  [corners]
+  (fn [context at duration]
+    (let [audio-node (.createStereoPanner context)]
+      (.. audio-node -pan (setValueAtTime 0 at))
+      (mapv (fn [[x y]] (.. audio-node -pan (linearRampToValueAtTime (dec (* 2 y)) (+ at x)))) corners)
+      (s/subgraph audio-node))))
+
+(defn trem
+  "min: minimal gain
+   max: maximal gain
+   f: tremolo frequency"
+  [{:keys [min max f]}]
   (fn [ctx at dur]
     (s/subgraph
       (doto (.createGain ctx)
@@ -76,34 +113,7 @@
         s/destination)
       (s/run-with context (s/current-time context) 3)))
 
-(defn osc-line
-  [{:keys [init points type]}]
-  (fn [context at duration]
-    (let [osc (.createOscillator context)]
-      (.. osc -frequency (setValueAtTime init at))
-      (aset osc "type" (or type "sine"))
-      (.start osc at)
-      (.stop osc (+ duration at))
-      (mapv (fn [[x y]] (.. osc -frequency (linearRampToValueAtTime y (+ at x)))) points)
-      (s/source osc))))
-
-(defn envelop
-  "Build an envelope out of [segment-duration final-level] coordinates."
-  [corners]
-  (fn [context at duration]
-    (let [audio-node (.createGain context)]
-      (.. audio-node -gain (setValueAtTime 0 at))
-      (mapv (fn [[x y]] (.. audio-node -gain (linearRampToValueAtTime y (+ at x)))) corners)
-      (s/subgraph audio-node))))
-
-(defn pans
-  "Build an envelope out of [segment-duration final-level] coordinates."
-  [corners]
-  (fn [context at duration]
-    (let [audio-node (.createStereoPanner context)]
-      (.. audio-node -pan (setValueAtTime 0 at))
-      (mapv (fn [[x y]] (.. audio-node -pan (linearRampToValueAtTime (dec (* 2 y)) (+ at x)))) corners)
-      (s/subgraph audio-node))))
+;; noise nodes ---------------------------------------------
 
 (defn pink-noise []
   (fn [context at duration]
@@ -137,14 +147,28 @@
         s/destination)
       (s/run-with ctx at duration)))
 
-(defn format-multidimensional-timeline [x]
+;; synth --------------------------------------------------
+
+(defn format-multidimensional-timeline
+  "[[0 [1 2 3]] [1 [4 5 6]]]
+   ;=> [[0 {1 1, 2 2, 3 3}]
+        [1 {1 4, 2 5, 3 6}]]"
+  [x]
   (mapv (fn [[k v]]
           [k (if (vector? v)
-               (into {} (map-indexed vector v))
+               (into {} (map-indexed (fn [i v] [(inc i) v]) v))
                v)])
         x))
 
-(defn transpose-multidimensional-timeline [x]
+(defn transpose-multidimensional-timeline
+  "[[0 {1 1, 2 2, 3 3}]
+    [1 {1 4, 2 5, 3 6}]]
+   ;=>
+   {1 [[0 1] [1 4]],
+    2 [[0 2] [1 5]],
+    3 [[0 3] [1 6]]}
+   can also take non formatted mtl see above"
+  [x]
   (let [formated (format-multidimensional-timeline x)
         ks (set (mapcat (comp keys second) formated))]
     (reduce
@@ -158,18 +182,22 @@
       formated)))
 
 (defn synth
-  "return a seq of source nodes"
+  "init: initial frequency
+   fq: frequenciy timeline
+   harmonics: harmonics timeline ex: [[t0 {coef1 gain1 coef2 gain2}][t1 {...}]]
+   pan: pan timeline
+   gain: gain timeline
+   oscs: osctypes timeline ex [[t0 {\"sine\" 1 \"square\" 0.5}][t1 {...}]]"
   [{:keys [init fq harmonics pan gain oscs]}]
   (let [ths (transpose-multidimensional-timeline harmonics)
         oscs (transpose-multidimensional-timeline oscs)
-        idx->osc-type {0 "sine"
-                       1 "square"
-                       2 "triangle"
-                       3 "sawtooth"}
+        idx->osc-type {1 "sine"
+                       2 "square"
+                       3 "triangle"
+                       4 "sawtooth"}
         map-seconds (fn [f coll] (map (fn [[x y]] [x (f y)]) coll))
         gain-node (envelop gain)
         pan-node (pans pan)]
-    (println ths oscs)
     (apply
       concat
       (mapv
@@ -189,16 +217,17 @@
                   ths)))
         oscs))))
 
-(def ctx (s/audio-context))
-
 (comment "test synth"
-  (-> (synth {:init 100
-              :fq [[0 100]]
-              :gain [[0 1]]
-              :harmonics [[0 {1 1 2 0.5 5 0.1}] [0.5 {1 1 2 0.1 5 0.5}]]
-              :oscs [[0 {"sine" 1 "square" 0.1}]]
-              :pan [[0 0.5]]})
-      (run-all-with ctx (+ 2 (s/current-time ctx)) 3)))
+         (def ctx (s/audio-context))
+         (-> (synth {:init 100
+                     :fq [[0 100]]
+                     :gain [[0 1]]
+                     :harmonics [[0 {1 1 2 0.5 5 0.1}] [0.5 {1 1 2 0.1 5 0.5}]]
+                     :oscs [[0 {"sine" 1 "square" 0}]]
+                     :pan [[0 0.5]]})
+             (run-all-with ctx (+ 2 (s/current-time ctx)) 3)))
+
+;; eq -----------------------------------------------------
 
 (def flat-eq-points
   (map
@@ -226,17 +255,31 @@
 
   (def ctx (s/audio-context))
 
-  (-> (s/connect->
-        (pink-noise)
-        (s/gain 0.5)
-        s/destination)
-      (s/run-with ctx (+ 2 (s/current-time ctx)) 3))
+  (do (-> (s/connect->
+            (osc-line {:type "sine"
+                       :init 200
+                       :points [[0 200]]})
+            (s/gain 0.5)
+            (s/stereo-panner 1)
+            s/destination)
+          (s/run-with ctx (+ 2 (s/current-time ctx)) 3))
+
+      (-> (s/connect->
+            (osc-line {:type "sine"
+                       :init 204
+                       :points [[0 204]]})
+            (s/gain 0.5)
+            (s/stereo-panner -1)
+            s/destination)
+          (s/run-with ctx (+ 2 (s/current-time ctx)) 3)))
 
   (s/run-with
     (s/connect->
       (pink-noise)
+      (s/gain 0.1)
       (eq [{:fq 1000 :gain -10 :q 0.4}
-           {:fq 100 :gain 10 :q 1}])
+           {:fq 100 :gain 10 :q 1}
+           {:fq 500 :gain 10 :q 1}])
       s/destination)
     ctx
     (+ 2 (s/current-time ctx))
@@ -254,6 +297,14 @@
               :pan 0.5})
       (run-all-with ctx (+ 2 (s/current-time ctx)) 3)))
 
+;; binaural-beats ---------------------------------------------------
+
+;; helpers ----
+
+(defn close-ctx [ctx]
+  (.then (.close @ctx)
+         (fn [] (reset! ctx nil))))
+
 (defn run-all-with [xs ctx ct duration]
   (mapv #(s/run-with % ctx ct duration) xs))
 
@@ -263,35 +314,18 @@
     {:left (mapv (fn [[x y]] [x (+ y (/ (delta-interp x) 2.0))]) main-seq)
      :right (mapv (fn [[x y]] [x (- y (/ (delta-interp x) 2.0))]) main-seq)}))
 
-(defn play-binaural* [{:keys [ctx fqs deltas envelope duration]}]
-  (let [{:keys [left right]} (binaural-fq-seqs fqs deltas duration)
-        ct (s/current-time ctx)]
-
-    (-> (s/connect->
-          (osc-line {:init (ffirst left) :points left})
-          (envelop envelope)
-          (s/stereo-panner -1)
-          s/destination)
-        (s/run-with ctx ct duration))
-
-    (-> (s/connect->
-          (osc-line {:init (ffirst right) :points right})
-          (envelop envelope)
-          (s/stereo-panner 1)
-          s/destination)
-        (s/run-with ctx ct duration))))
+;; main -------
 
 (defn play-binaural [{ctx :ctx
                       {:keys [fq delta gain harmonics oscs]} :track
                       dur :duration
                       at :at}]
-  (println "play binaural" (binaural-fq-seqs fq delta dur))
   (let [{:keys [left right]} (binaural-fq-seqs fq delta dur)]
     (-> (synth {:init (ffirst left)
                 :fq left
                 :harmonics harmonics
                 :oscs oscs
-                :pan [[0 -1]]
+                :pan [[0 0]]
                 :gain gain})
         (run-all-with ctx at dur))
 
@@ -302,9 +336,6 @@
                 :pan [[0 1]]
                 :gain gain})
         (run-all-with ctx at dur))))
-
-(defn close-ctx [ctx]
-  (.then (.close @ctx) (fn [] (reset! ctx nil))))
 
 (defn play-tracks [{:keys [ctx tracks decay duration]}]
   (let [at (+ (or decay 2) (s/current-time ctx))]

@@ -23,12 +23,12 @@
      :tracks
      [{:type :binaural
        :delta [[0 4]]
-       :fq [[0 100]]
+       :fq [[0 200]]
        :gain [[0 0.5]]
-       :harmonics [[0 [1 0.5 0.3 0.1 0.05 0.03]] [1 [1 0.5 0.3 0.1 0.05 0.03]]]
-       :oscs [[0 [1 0.1 0.1 0.1]] [1 [1 0.1 0.1 0.1]]]}
+       :harmonics [[0 [1]] [1 [1]]]
+       :oscs [[0 [1]] [1 [1]]]}
       {:type :brown
-       :gain [[0 0.1]]
+       :gain [[0 0]]
        :pan [[0 0.5]]}]
 
      :tracks-settings
