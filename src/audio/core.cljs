@@ -137,27 +137,68 @@
         s/destination)
       (s/run-with ctx at duration)))
 
+(defn format-multidimensional-timeline [x]
+  (mapv (fn [[k v]]
+          [k (if (vector? v)
+               (into {} (map-indexed vector v))
+               v)])
+        x))
+
+(defn transpose-multidimensional-timeline [x]
+  (let [formated (format-multidimensional-timeline x)
+        ks (set (mapcat (comp keys second) formated))]
+    (reduce
+      (fn [acc [t hm]]
+        (reduce
+          (fn [acc [k v]]
+            (update acc k conj [t v]))
+          acc
+          hm))
+      (apply hash-map (interleave ks (repeat [])))
+      formated)))
+
 (defn synth
   "return a seq of source nodes"
-  [{:keys [init fqs harmonics pan gain oscs]}]
-  (let [normalize #(let [t (reduce + (vals %))]
-                     (mapv (fn [[x y]] [x (/ y t)]) %))
+  [{:keys [init fq harmonics pan gain oscs]}]
+  (let [ths (transpose-multidimensional-timeline harmonics)
+        oscs (transpose-multidimensional-timeline oscs)
+        idx->osc-type {0 "sine"
+                       1 "square"
+                       2 "triangle"
+                       3 "sawtooth"}
         map-seconds (fn [f coll] (map (fn [[x y]] [x (f y)]) coll))
-        r (apply
-            concat
-            (mapv
-              (fn [[osc-type g1]]
-                (mapv (fn [[n g2]]
-                        (s/connect->
-                          (osc-line {:type osc-type
-                                     :init (* n init)
-                                     :points (map-seconds (partial * n) fqs)})
-                          (envelop (map-seconds (partial * g1 g2) gain))
-                          (s/stereo-panner pan)
-                          s/destination))
-                      (normalize harmonics)))
-              (normalize oscs)))]
-    r))
+        gain-node (envelop gain)
+        pan-node (pans pan)]
+    (println ths oscs)
+    (apply
+      concat
+      (mapv
+        (fn [[idx g1]]
+          (let [osc-type (idx->osc-type idx)
+                osc-gain-node (envelop g1)]
+            (mapv (fn [[coef g2]]
+                    (s/connect->
+                      (osc-line {:type osc-type
+                                 :init (* coef init)
+                                 :points (map-seconds (partial * coef) fq)})
+                      (envelop g2)
+                      osc-gain-node
+                      gain-node
+                      pan-node
+                      s/destination))
+                  ths)))
+        oscs))))
+
+(def ctx (s/audio-context))
+
+(comment "test synth"
+  (-> (synth {:init 100
+              :fq [[0 100]]
+              :gain [[0 1]]
+              :harmonics [[0 {1 1 2 0.5 5 0.1}] [0.5 {1 1 2 0.1 5 0.5}]]
+              :oscs [[0 {"sine" 1 "square" 0.1}]]
+              :pan [[0 0.5]]})
+      (run-all-with ctx (+ 2 (s/current-time ctx)) 3)))
 
 (def flat-eq-points
   (map
@@ -206,14 +247,10 @@
     (s/source (new js/ConstantSourceNode 1)))
 
   (-> (synth {:init 100
-              :fqs [[0 100]]
+              :fq [[0 100]]
               :gain [[0 1]]
-              :harmonics {1 1 2 0.5 3 0.1 4 0.1 5 0.1}
-              :oscs {"sine" 1
-                     "square" 0.001
-                     "triangle" 0.1
-                     "sawtooth" 0.001
-                     }
+              :harmonics [[0 {1 1 2 0.5 5 0.1}]]
+              :oscs [[0 {"sine" 1 "square" 0.1}]]
               :pan 0.5})
       (run-all-with ctx (+ 2 (s/current-time ctx)) 3)))
 
@@ -248,27 +285,21 @@
                       {:keys [fq delta gain harmonics oscs]} :track
                       dur :duration
                       at :at}]
+  (println "play binaural" (binaural-fq-seqs fq delta dur))
   (let [{:keys [left right]} (binaural-fq-seqs fq delta dur)]
     (-> (synth {:init (ffirst left)
-                :fqs left
-                :harmonics (into {} (map-indexed (fn [i x] [(inc i) x]) harmonics))
-                :oscs {"sine" (get oscs 0)
-                       "square" (get oscs 1)
-                       "triangle" (get oscs 2)
-                       "sawtooth" (get oscs 3)
-                       }
-                :pan -1
+                :fq left
+                :harmonics harmonics
+                :oscs oscs
+                :pan [[0 -1]]
                 :gain gain})
         (run-all-with ctx at dur))
 
     (-> (synth {:init (ffirst right)
-                :fqs right
-                :harmonics (into {} (map-indexed (fn [i x] [(inc i) x]) harmonics))
-                :oscs {"sine" (get oscs 0)
-                       "square" (get oscs 1)
-                       "triangle" (get oscs 2)
-                       "sawtooth" (get oscs 3)}
-                :pan 1
+                :fq right
+                :harmonics harmonics
+                :oscs oscs
+                :pan [[0 1]]
                 :gain gain})
         (run-all-with ctx at dur))))
 

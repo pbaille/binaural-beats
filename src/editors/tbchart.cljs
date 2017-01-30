@@ -33,7 +33,7 @@
         bc-in (chan)
         bc-out (chan)
         pos* (atom (or (-> s :rum/args first :pos) 0))
-        data* (atom (-> s :rum/args first :data))
+        data* (-> s :rum/args first :data)
         selected* (atom (-> s :rum/args first :selected))
         s (update s
                   :opts
@@ -87,6 +87,13 @@
     (go-loop []
              (let [[v & [a1 a2 a3 :as args] :as m] (<! bc-out)]
                (condp = v
+
+                 :point-added
+                 (swap! data* (fn [d] (mapv (fn [[k v]] [k (u/vinsert v a2 a3)]) d)))
+
+                 :point-removed
+                 (swap! data* (fn [d] (mapv (fn [[k v]] [k (u/rem-idx v a2)]) d)))
+
                  :set-dragged
                  (when-not a2
                    (if @selected*
@@ -98,8 +105,8 @@
 
 
 (r/defcs editor < {:init init} r/reactive
-  [s _]
-  (let [{:keys [pos data ms1-chans ms2-chans bc-chans]} (:opts s)
+  [s {:keys [data]}]
+  (let [{:keys [pos ms1-chans ms2-chans bc-chans]} (:opts s)
         p (r/react pos)
         d (r/react data)]
     #_(println "render" p d)
@@ -128,7 +135,7 @@
 
 (.clear js/console)
 (r/mount
-  (editor {:pos 0.7 :data [[0 [0.1 0.6 0.8]]
-                           [0.5 [0.2 0.4 0.6]]
-                           [1 [1 0.2 0.8]]]})
+  (editor {:pos 0.7 :data (atom [[0 [0.1 0.6 0.8]]
+                                 [0.5 [0.2 0.4 0.6]]
+                                 [1 [1 0.2 0.8]]])})
   (.getElementById js/document "app"))

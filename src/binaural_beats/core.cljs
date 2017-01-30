@@ -4,12 +4,14 @@
             [audio.core :as audio]
             [editors.spline :as se]
             [editors.barchart :as bce]
+            [editors.tbchart :as tbchart]
             [utils.core :as u :refer [tval]]
             [utils.colors :refer [palettes]]
             [cljs.pprint :refer [pprint]]
             [cljs-bach.synthesis :as s]))
 
 (enable-console-print!)
+(.clear js/console)
 
 (def state
   (atom
@@ -23,8 +25,8 @@
        :delta [[0 4]]
        :fq [[0 100]]
        :gain [[0 0.5]]
-       :harmonics [1 0.5 0.3 0.1 0.05 0.03]
-       :oscs [1 0 0 0]}
+       :harmonics [[0 [1 0.5 0.3 0.1 0.05 0.03]] [1 [1 0.5 0.3 0.1 0.05 0.03]]]
+       :oscs [[0 [1 0.1 0.1 0.1]] [1 [1 0.1 0.1 0.1]]]}
       {:type :brown
        :gain [[0 0.1]]
        :pan [[0 0.5]]}]
@@ -83,7 +85,7 @@
                   state (fn [x {[_ maxx] :x}]
                           (assoc x :duration maxx))})
         spline-editor? (reaction (#{:delta :fq :gain} @selected))
-        barchart-editor? (reaction (#{:harmonics :oscs} @selected))]
+        tbchart-editor? (reaction (#{:harmonics :oscs} @selected))]
     (fn []
       [:div.multi-spline
        [:select {:value (name @selected)
@@ -112,21 +114,23 @@
                        :on-change #(swap! ranges assoc-in [:y 1] (js/parseFloat (tval %)))}]])))
        (cond
          @spline-editor?
-         [se/spline-editor*
-          {:points (r/cursor track [@selected])
-           :styles @style
-           :ranges ranges
-           :height @height
-           :width @width}]
+         (rum.core/with-key
+           (se/spline-editor*
+             {:points (r/cursor track [@selected])
+              :styles @style
+              :ranges ranges
+              :height @height
+              :width @width})
+           @selected)
 
-         @barchart-editor?
-         [bce/barchart-editor
-          {:s @selected
-           :points (get @track @selected)
-           :on-change #(swap! track assoc @selected %)
-           :styles @style
-           :height @height
-           :width @width}])])))
+         @tbchart-editor?
+         (rum.core/with-key
+           (tbchart/editor
+             {:data (r/cursor track [@selected])
+              :styles @style
+              :height @height
+              :width @width})
+           @selected))])))
 
 (defn noise-editor [{:keys [track settings]}]
   (let [selected (r/cursor settings [:selected])
@@ -183,10 +187,10 @@
 
      [:div
       [:button {:on-click #(audio/play-tracks
-                            {:ctx ctx
-                             :duration (:duration @state)
-                             :decay 2
-                             :tracks (:tracks @state)})}
+                             {:ctx ctx
+                              :duration (:duration @state)
+                              :decay 2
+                              :tracks (:tracks @state)})}
        "play/stop"]
       [:button {:on-click #(audio/export-buffer
                              {:ctx ctx

@@ -62,7 +62,8 @@
      (assoc-in s [:points idx] value))
    :add-point
    (fn [s idx value]
-     (if (> (:points-max-count s) (count (:points s)))
+     (println "add point" (:max-points-count s) (count (:points s)) (> (:max-points-count s) (count (:points s))))
+     (if (> (:max-points-count s) (count (:points s)))
        (let [{:keys [width bar-margin points]} s
              bwidth (/ (- width bar-margin) (inc (count points)))]
          (-> s
@@ -71,7 +72,7 @@
        s))
    :remove-point
    (fn [s idx]
-     (if (< (:points-min-count s) (count (:points s)))
+     (if (< (:min-points-count s) (count (:points s)))
        (let [{:keys [width bar-margin points]} s
              bwidth (/ (- width bar-margin) (dec (count points)))]
          (-> s
@@ -243,8 +244,10 @@
   s)
 
 (defn take-args [s]
-  (let [{:keys [points styles width height on-change]
-         :or {on-change identity}}
+  (let [{:keys [points styles width height on-change max-points-count min-points-count]
+         :or {on-change identity
+              max-points-count js/Infinity
+              min-points-count 1}}
         (first (:rum/args s))
         styles (u/merge-in default-styles styles)
         bar-margin (get-in styles [:bars :margin])]
@@ -254,6 +257,8 @@
            :points points
            :width width
            :height height
+           :max-points-count max-points-count
+           :min-points-count min-points-count
            :bar-width (/ (- width bar-margin) (count points))
            :bar-margin bar-margin
            :bar-max-height (- height (* 2 bar-margin)))
@@ -318,8 +323,8 @@
 
   (rum/mount (barchart-editor
                {:points [0 0.5 0.7 0.2]
-                :points-max-count 6
-                :points-min-count 2
+                :max-points-count 6
+                :min-points-count 2
                 :on-change (fn [x] (println "on-change " x))
                 :styles (simple-styles "white" "pink")
                 :height 200
