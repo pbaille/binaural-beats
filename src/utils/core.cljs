@@ -13,6 +13,9 @@
 
 (defn now [] (.getTime (js/Date.)))
 
+(defn $ [sel]
+  (.querySelector js/document sel))
+
 (defn get-mouse-signal [& [el]]
   (let [mouse-position (atom {:x 0 :y 0})]
     (aset (or el js/document)
@@ -22,6 +25,31 @@
                     {:y (.-offsetY e)
                      :x (.-offsetX e)})))
     mouse-position))
+
+(defn download [data filename & [format]]
+  (let [format (or format "application/octet-stream")
+        a (.createElement js/document "a")]
+    (aset a "href" (str "data:text/plain;charset=utf-8," (pr-str data)))
+    (aset a "download" filename)
+    (.click a)
+    (.removeChild js/document a)))
+
+(defn file-input [{:keys [on-result text]}]
+  (let [id (str (gensym))]
+    (fn []
+      [:span
+       [:button {:on-click #(.click ($ (str "#" id)))} text]
+       [:input {:id id
+                :type "file"
+                :style {:display :none}
+                :on-change
+                (fn [e]
+                  (let [f (first (array-seq (.. e -target -files)))
+                        reader (js/FileReader.)]
+                    (aset reader "onload"
+                          (fn [e]
+                            (on-result (.. e -target -result))))
+                    (.readAsText reader f)))}]])))
 
 (def p println)
 

@@ -8,7 +8,8 @@
             [utils.core :as u :refer [tval]]
             [utils.colors :refer [palettes]]
             [cljs.pprint :refer [pprint]]
-            [cljs-bach.synthesis :as s]))
+            [cljs-bach.synthesis :as s]
+            [cljs.reader :as reader]))
 
 (enable-console-print!)
 (.clear js/console)
@@ -197,8 +198,12 @@
                               :duration (:duration @state)
                               :decay 2
                               :tracks (:tracks @state)})}
-       "export"]]]))
+       "export"]
+
+      [:button {:on-click #(u/download @state "bb-state.edn")} "save"]
+      [u/file-input {:text "restore"
+                     :on-result #(reset! state (reader/read-string %))}]
+      ]]))
 
 (r/render-component [main]
                     (.getElementById js/document "app"))
-

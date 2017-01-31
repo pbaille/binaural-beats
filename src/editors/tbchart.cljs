@@ -1,3 +1,5 @@
+;; timeline barchart editor
+
 (ns editors.tbchart
   (:require-macros [cljs.core.async.macros :refer [go-loop go]])
   (:require [cljs.core.async :as async :refer [chan >! <!]]
@@ -44,6 +46,8 @@
                   :ms1-chans {:in ms1-in :out ms1-out}
                   :ms2-chans {:in ms2-in :out ms2-out}
                   :bc-chans {:in bc-in :out bc-out})]
+
+    ;; hooking subcomponents together
 
     (go-loop []
              (let [[v & [a1 a2 a3 :as args] :as m] (<! ms1-out)]
@@ -133,8 +137,8 @@
 
 ;; test --------------------------------------------------------------
 
-(.clear js/console)
-(r/mount
+#_(.clear js/console)
+#_(r/mount
   (editor {:pos 0.7 :data (atom [[0 [0.1 0.6 0.8]]
                                  [0.5 [0.2 0.4 0.6]]
                                  [1 [1 0.2 0.8]]])})

@@ -41,7 +41,7 @@
           :margin 10}
    :svg {:styles {:background "pink"
                   :border "2px solid white"
-                  :border-radius :4px}
+                  :border-radius "4px"}
          :attrs {:class "barchart-svg"}}})
 
 (defn simple-styles [c1 c2]

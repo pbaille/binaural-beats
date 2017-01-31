@@ -21,7 +21,7 @@
           :margin 14}
    :svg {:styles {:background "#dedede"
                   :border "none"
-                  :border-radius :4px}
+                  :border-radius "4px"}
          :attrs {:class "multislider-svg"}}})
 
 (defn simple-styles [c1 c2 c3]

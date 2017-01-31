@@ -104,7 +104,7 @@
 
    :svg
    {:styles {:border (str "2px solid " c1)
-             :border-radius :4px
+             :border-radius "4px"
              :background c3}}
 
    :lines
