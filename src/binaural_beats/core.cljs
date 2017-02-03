@@ -186,6 +186,10 @@
               :value (:duration @state)
               :on-change #(swap! state assoc :duration (int (tval %)))}]
 
+     [:button {}]
+
+     ;; main controls --------------------------------------------------
+
      [:div
       [:button {:on-click #(audio/play-tracks
                              {:ctx ctx
@@ -205,5 +209,5 @@
                      :on-result #(reset! state (reader/read-string %))}]
       ]]))
 
-(r/render-component [main]
+#_(r/render-component [main]
                     (.getElementById js/document "app"))

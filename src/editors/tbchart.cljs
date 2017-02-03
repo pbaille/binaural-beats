@@ -8,6 +8,7 @@
             [editors.multislider :as ms]
             [editors.multislider :as ms2]
             [utils.core :as u]
+            [utils.rum-mixins :as rm]
             [clojure.set :refer [superset? subset? difference]]))
 
 (defn interpolate-points [data pos]
@@ -107,8 +108,27 @@
                (recur)))
     s))
 
+(def ms-styles
+  (let [white* "rgba(255,255,255,.7)"
+        base {:line {:attrs {:fill "rgba(255,255,255,.5)"}
+                     :margin 10}
+              :selected-point {:attrs {:fill "pink"
+                                       :stroke "white"
+                                       :r 6}}
+              :points {:attrs {:fill "pink"
+                               :stroke white*}}
+              :svg {:styles {:background "pink"}}}]
+    {:top (assoc-in base [:svg :styles :border-radius] "4px 4px 0 0")
+     :bottom (assoc-in base [:svg :styles :border-radius] "0 0 4px 4px")}))
 
-(r/defcs editor < {:init init} r/reactive
+(def styles
+  [:.tlbchart
+   {:background :blue}])
+
+(r/defcs editor <
+  r/reactive
+  (rm/styled styles)
+  {:init init}
   [s {:keys [data]}]
   (let [{:keys [pos ms1-chans ms2-chans bc-chans]} (:opts s)
         p (r/react pos)
@@ -120,7 +140,8 @@
         :in-chan (:in ms1-chans)
         :out-chan (:out ms1-chans)
         :height 100
-        :width 500})
+        :width 500
+        :styles (:top ms-styles)})
      (bc/barchart-editor
        {:points (interpolate-points d p)
         :in-chan (:in bc-chans)
@@ -133,11 +154,12 @@
         :out-chan (:out ms2-chans)
         :height 100
         :max-points-count 1
-        :width 500})]))
+        :width 500
+        :styles (:bottom ms-styles)})]))
 
 ;; test --------------------------------------------------------------
 
-#_(.clear js/console)
+(.clear js/console)
 #_(r/mount
   (editor {:pos 0.7 :data (atom [[0 [0.1 0.6 0.8]]
                                  [0.5 [0.2 0.4 0.6]]

@@ -282,7 +282,12 @@
                 (select node)
                 (append "svg"))
 
-        rect (.. svg (append "rect"))]
+        rect (.. svg (append "rect"))
+        {:keys [pad line-height]} @(:state s)]
+
+    (aset (.-style (rum/dom-node s))
+          "height"
+          (str (+ line-height (* 2 pad)) "px"))
 
     (swap! (:state s)
            (fn [s]
@@ -349,6 +354,12 @@
       :width 500})])
 
 (.clear js/console)
-(rum/mount (test-ms)
+(rum/mount (multislider
+             {:points [0.1 0.5 0.9]
+              :out-chan out-chan
+              :in-chan in-chan
+              :height 100
+              :width 500})
+           #_(test-ms)
              (.getElementById js/document "app"))
 

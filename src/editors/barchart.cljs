@@ -39,16 +39,17 @@
                   :stroke "white"
                   :stroke-width "2px"}
           :margin 10}
-   :svg {:styles {:background "pink"
-                  :border "2px solid white"
-                  :border-radius "4px"}
+   :buttons {:plus {:background "grey"
+                    :color "white"}
+             :minus {:background "grey"
+                     :color "white"}}
+   :svg {:styles {:background "pink"}
          :attrs {:class "barchart-svg"}}})
 
 (defn simple-styles [c1 c2]
   {:bars {:attrs {:fill c1
                   :stroke c2}}
-   :svg {:styles {:background c2
-                  :border (str "2px solid " c1)}}})
+   :svg {:styles {:background c2}}})
 
 ;; actions and notifs -----------------------------------
 
@@ -62,7 +63,6 @@
      (assoc-in s [:points idx] value))
    :add-point
    (fn [s idx value]
-     (println "add point" (:max-points-count s) (count (:points s)) (> (:max-points-count s) (count (:points s))))
      (if (> (:max-points-count s) (count (:points s)))
        (let [{:keys [width bar-margin points]} s
              bwidth (/ (- width bar-margin) (inc (count points)))]
@@ -94,9 +94,13 @@
 
 ;; controls --------------------------------------------
 
-(defn draw-button [{:keys [svg x y r on-click op]}]
+(defn draw-button [{:keys [styles svg x y r on-click op]}]
 
-  (let [g (.. svg
+  (let [plus? (= op :plus)
+        styles (if plus?
+                 (:plus styles)
+                 (:minus styles))
+        g (.. svg
               (append "g")
               (attr "class" "controls"))]
 
@@ -106,8 +110,8 @@
         (attr "cx" x)
         (attr "cy" y)
         (attr "r" r)
-        (attr "fill" "white")
-        (style "opacity" 0.7)
+        (attr "fill" (:background styles))
+        (style "opacity" (:opacity styles 1))
         (on "mousedown" on-click))
 
     (.. g
@@ -117,10 +121,11 @@
         (attr "y" (- y (* 0.1 r)))
         (attr "height" (* 0.2 r))
         (attr "width" r)
-        (attr "fill" "pink")
+        (attr "fill" (:color styles))
+        (style "opacity" (:opacity styles 1))
         (on "mousedown" on-click))
 
-    (when (= op :plus)
+    (when plus?
       (.. g
           (append "rect")
           (attr "class" "control")
@@ -128,7 +133,8 @@
           (attr "y" (- y (* 0.5 r)))
           (attr "height" r)
           (attr "width" (* 0.2 r))
-          (attr "fill" "pink")
+          (attr "fill" (:color styles))
+          (style "opacity" (:opacity styles 1))
           (on "mousedown" on-click)))))
 
 (defn draw-controls [s]
@@ -156,10 +162,11 @@
                                    (first (filter (fn [[_ l g]] (<= l x g)) between-ranges)))]
           (draw-button
             {:svg svg
+             :styles (:buttons styles)
              :g g
              :x (/ (+ min max) 2)
              :y (+ bar-margin (/ bar-max-height 2))
-             :r 15
+             :r 10
              :on-click #(dispatch-sync [:add-point idx 0.5])
              :op :plus}))
 
@@ -168,10 +175,11 @@
           (let [idx (js/Math.floor (/ x bar-width))]
             (draw-button
               {:svg svg
+               :styles (:buttons styles)
                :g g
                :x (+ (* idx bar-width) (/ bar-width 2) (/ bar-margin 2))
-               :y (- height (/ bar-margin 2))
-               :r 15
+               :y (- height 15)
+               :r 10
                :on-click #(dispatch-sync [:remove-point idx])
                :op :minus})))))))
 
@@ -272,6 +280,10 @@
                 (append "svg"))
 
         g (.append svg "g")]
+
+    (aset (.-style (rum/dom-node s))
+          "height"
+          (str (:height @(:state s)) "px"))
 
     (swap! (:state s)
            assoc

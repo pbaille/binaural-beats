@@ -2,7 +2,17 @@
   (:require-macros [cljs.core.async.macros :refer [go-loop go]])
   (:require [cljs.core.async :as async :refer [chan >! <!]]
             [rum.core :as rum]
-            [utils.core :as u]))
+            [utils.core :as u]
+            [garden.core :refer [css style]]
+            [goog.style :as gs]))
+
+;; styled
+;; --------------------------------------------------------------
+
+(defn styled
+  "simple mixin for styling components with garden"
+  [& ss]
+  {:did-mount (fn [s] (gs/installStyles (apply css ss)) s)})
 
 ;; slave
 ;; --------------------------------------------------------------

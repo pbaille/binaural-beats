@@ -183,7 +183,7 @@
 
 (defn synth
   "init: initial frequency
-   fq: frequenciy timeline
+   fq: frequency timeline
    harmonics: harmonics timeline ex: [[t0 {coef1 gain1 coef2 gain2}][t1 {...}]]
    pan: pan timeline
    gain: gain timeline
@@ -314,13 +314,19 @@
     {:left (mapv (fn [[x y]] [x (+ y (/ (delta-interp x) 2.0))]) main-seq)
      :right (mapv (fn [[x y]] [x (- y (/ (delta-interp x) 2.0))]) main-seq)}))
 
+(defn scale-timeline [dur tl]
+  (mapv (fn [[t v]] [(* dur t) v]) tl))
+
 ;; main -------
 
 (defn play-binaural [{ctx :ctx
                       {:keys [fq delta gain harmonics oscs]} :track
                       dur :duration
                       at :at}]
-  (let [{:keys [left right]} (binaural-fq-seqs fq delta dur)]
+  (let [[fq delta gain harmonics oscs]
+        (mapv (partial scale-timeline dur)
+              [fq delta gain harmonics oscs])
+        {:keys [left right]} (binaural-fq-seqs fq delta dur)]
     (-> (synth {:init (ffirst left)
                 :fq left
                 :harmonics harmonics
