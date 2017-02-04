@@ -11,12 +11,12 @@
   (try (js->clj (.mouse d3 (.node svg)))
        (catch :default e [0 0])))
 
-(defn move-point-args [{:keys [svg bar-width bar-margin bar-max-height]}]
+(defn move-point-args [{:keys [svg bar-width pads bar-max-height]}]
   (let [[x y] (mouse-pos svg)]
     [(js/Math.floor (/ x bar-width))
      ((u/bounder 0 1)
        (/ (+ (- bar-max-height y)
-             bar-margin)
+             (:top pads))
           bar-max-height))]))
 
 (defn hover-tracker [{:keys [svg bar-width hover]}]
@@ -183,6 +183,70 @@
                :on-click #(dispatch-sync [:remove-point idx])
                :op :minus})))))))
 
+(defn controls [s]
+  (let [{:keys [g
+                svg
+                points
+                bar-width
+                pads
+                bar-max-height
+                dispatch-sync]} @s
+
+        bar-controls (.. g
+                         (selectAll ".bar-control" )
+                         (data (js> (map-indexed vector points))))
+
+        control-btn-width (/ (- bar-width (:inter pads)) 3)]
+
+    (when (and (not (:dragged @s))
+               (:mouse-in @s))
+
+      (.. bar-controls
+          enter
+          (append "g")
+          (attr "class" "bar-control")
+          (append "rect")
+          (attr "class" "barchart-btn insert-left")
+          (select (fn [] (this-as this (.-parentNode this))))
+          (append "rect")
+          (attr "class" "barchart-btn delete")
+          (select (fn [] (this-as this (.-parentNode this))))
+          (append "rect")
+          (attr "class" "barchart-btn insert-right")
+          (select (fn [] (this-as this (.-parentNode this))))
+
+          (merge bar-controls)
+          (select ".insert-left")
+          (attr "x" (fn [[i x]] (+ (:left pads) (* bar-width i))))
+          (attr "width" control-btn-width)
+          (attr "height" 20)
+          (attr "y" (fn [[i x]] (+ (:top pads) (- bar-max-height 20))))
+          (on "mousedown" (fn [[i _]]
+                            (dispatch-sync [:add-point i 0.5])
+                            (.. d3 -event stopPropagation)))
+
+          (select (fn [] (this-as this (.-parentNode this))))
+          (select ".delete")
+          (attr "x" (fn [[i x]] (+ control-btn-width (:left pads) (* bar-width i))))
+          (attr "width" control-btn-width)
+          (attr "height" 20)
+          (attr "y" (fn [[i x]] (+ (:top pads) (- bar-max-height 20))))
+          (on "mousedown" (fn [[i _]]
+                            (dispatch-sync [:remove-point i])
+                            (.. d3 -event stopPropagation)))
+
+          (select (fn [] (this-as this (.-parentNode this))))
+          (select ".insert-right")
+          (attr "x" (fn [[i x]] (+ (* 2 control-btn-width) (:left pads) (* bar-width i))))
+          (attr "width" control-btn-width)
+          (attr "height" 20)
+          (attr "y" (fn [[i x]] (+ (:top pads) (- bar-max-height 20))))
+          (on "mousedown" (fn [[i _]]
+                            (dispatch-sync [:add-point (inc i) 0.5])
+                            (.. d3 -event stopPropagation))))
+
+      (.. bar-controls exit remove))))
+
 ;; lifecycle --------------------------------------------
 
 (defn upd [s]
@@ -192,10 +256,11 @@
                 points
                 height
                 bar-width
-                styles
-                bar-margin
+                pads
                 bar-max-height
                 dispatch-sync]} @s
+
+        data* (js> (map-indexed vector points))
 
         bars (.. g
                  (selectAll ".bar")
@@ -206,22 +271,19 @@
         (append "rect")
         (attr "class" "bar")
         (attr "y" height)
-        (attr "fill" "grey")
-        (call #(u/a&s % (:bars styles)))
 
         (merge bars)
-        (attr "x" (fn [[i x]] (+ bar-margin (* bar-width i))))
-        (attr "width" (- bar-width bar-margin))
+        (attr "x" (fn [[i x]] (+ (:left pads) (* bar-width i))))
+        (attr "width" (- bar-width (:inter pads)))
         (attr "height" (fn [[i x]] (* bar-max-height x)))
-        (attr "y" (fn [[i x]] (+ bar-margin (- bar-max-height (* bar-max-height x)))))
+        (attr "y" (fn [[i x]] (+ (:top pads) (- bar-max-height (* bar-max-height x)))))
+        (classed "hover" (fn [[i _]] (= i (:hover @s))))
         (on "mouseenter" (fn [[i _]] (dispatch-sync [:set-hover i])))
-        (on "mouseleave" #(when-not (:dragged @s) (dispatch-sync [:set-hover nil])))
-        (transition 30)
-        (attr "opacity" (fn [_ i] (if (= i (:hover @s)) 0.6 0.2))))
+        (on "mouseleave" #(when-not (:dragged @s) (dispatch-sync [:set-hover nil]))))
 
     (.. bars exit remove)
 
-    (draw-controls s)
+    (controls s)
 
     (.. svg
         (on "mousedown"
@@ -236,7 +298,7 @@
         (on "mousemove"
             #(if (:dragged @s)
                (dispatch-sync [:move-point (move-point-args @s)])
-               (draw-controls s)))
+               nil #_(draw-controls s)))
 
         (on "mouseenter"
             #(dispatch-sync [:set-mouse-in true]))
@@ -251,25 +313,21 @@
          :hover nil)
   s)
 
+(def default-args
+  {:on-change identity
+   :max-points-count 100
+   :min-points-count 1
+   :pads {:top 4 :bottom 4 :right 4 :left 4 :inter 4}})
+
 (defn take-args [s]
-  (let [{:keys [points styles width height on-change max-points-count min-points-count]
-         :or {on-change identity
-              max-points-count js/Infinity
-              min-points-count 1}}
-        (first (:rum/args s))
-        styles (u/merge-in default-styles styles)
-        bar-margin (get-in styles [:bars :margin])]
+  (let [{:keys [points width height on-change max-points-count min-points-count]
+         {pt :top pb :bottom pi :inter pr :right pl :left} :pads}
+        (merge default-args (first (:rum/args s)))]
     (swap! (:state s)
-           assoc
-           :styles styles
-           :points points
-           :width width
-           :height height
-           :max-points-count max-points-count
-           :min-points-count min-points-count
-           :bar-width (/ (- width bar-margin) (count points))
-           :bar-margin bar-margin
-           :bar-max-height (- height (* 2 bar-margin)))
+           into
+           (assoc (merge default-args (first (:rum/args s)))
+             :bar-max-height (- height (+ pb pt))
+             :bar-width (/ (+ pi (- width (+ pl pr))) (count points))))
     s))
 
 (defn init-base-elements [s]
@@ -279,25 +337,23 @@
                 (select node)
                 (append "svg"))
 
-        g (.append svg "g")]
+        g (.append svg "g")
+
+        {:keys [width height]} @(:state s)]
+
+    (.. svg
+        (attr "width" width)
+        (attr "height" height))
 
     (aset (.-style (rum/dom-node s))
           "height"
-          (str (:height @(:state s)) "px"))
+          (str height "px"))
 
     (swap! (:state s)
            assoc
            :svg svg
            :node node
            :g g)
-    s))
-
-(defn apply-base-styles [s]
-  (let [{:keys [svg width height styles]} @(:state s)]
-    (.. svg
-        (attr "width" width)
-        (attr "height" height)
-        (call #(u/a&s % (:svg styles))))
     s))
 
 (defn draw [s]
@@ -316,17 +372,32 @@
      :notifications notifications
      ;:before #(println %2)
      :after #(upd %1)})
+  (mixins/styled [:svg {:background "lightskyblue"}
+                  [:.bar {:fill "grey"
+                          :opacity 0.2
+                          :transition "opacity .5s, fill .5s"}
+                   [:&.hover {:fill "red"
+                              :opacity 0.6}]]
+                  [:.bar-control
+                   {:opacity 0
+                    :transition "all .5s"}
+                   [:&:hover {:opacity 1}]
+                   [:.insert-left
+                    :.insert-right
+                    {:fill "purple"}]
+                   [:.delete
+                    {:fill "tomato"}]]])
   {:should-update should-update
    :will-mount #(-> % take-args init-internal-state)
-   :did-mount #(-> % init-base-elements apply-base-styles draw)
-   :will-update #(-> % take-args apply-base-styles draw)}
+   :did-mount #(-> % init-base-elements draw)
+   :will-update #(-> % take-args draw)}
   [opts]
   #_(println "barchart render")
   [:div.barchart-editor-wrap])
 
 ;; example ----------------------------------------------
 
-#_(let [out-chan (async/chan)
+(let [out-chan (async/chan)
       in-chan (async/chan)]
   (go-loop []
            (let [m (async/<! out-chan)]
@@ -340,7 +411,8 @@
                 :on-change (fn [x] (println "on-change " x))
                 :styles (simple-styles "white" "pink")
                 :height 200
-                :width 800
+                :width 400
+                :pads {:top 20 :bottom 0 :left 12 :right 4 :inter 10}
                 :out-chan out-chan
                 :in-chan in-chan})
              (.getElementById js/document "app")))

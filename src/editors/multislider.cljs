@@ -5,31 +5,6 @@
             [rum.core :as rum]
             [cljs.core.async :as async]))
 
-;; styles -------------------------------------------------------------
-
-(def default-styles
-  {:points {:attrs {:fill "#70d233"
-                    :stroke "grey"
-                    :r 6
-                    :stroke-width "2px"}}
-   :selected-point {:attrs {:fill "#ff247f"
-                            :stroke "grey"
-                            :r 7
-                            :stroke-width "2px"}}
-   :line {:attrs {:fill "grey"
-                  :height 2}
-          :margin 14}
-   :svg {:styles {:background "#dedede"
-                  :border "none"
-                  :border-radius "4px"}
-         :attrs {:class "multislider-svg"}}})
-
-(defn simple-styles [c1 c2 c3]
-  {:points {:attrs {:fill c1
-                    :stroke c2}}
-   :line {:attrs {:fill c2}}
-   :svg {:styles {:background c3}}})
-
 ;; helpers -------------------------------------------------------------
 
 (defn- adj-idxs [ps idx]
@@ -153,20 +128,14 @@
 
   (let [{:keys [svg
                 points
-                line-height
+                track-height
                 width
-                styles
                 pad
                 dispatch-sync]} @s
 
         circles (.. svg
                     (selectAll "circle")
-                    (data (js> (map-indexed vector points))))
-
-        get-circle-styles (fn [idx]
-                            (if (= idx (:selected @s))
-                              (:selected-point styles)
-                              (:points styles)))]
+                    (data (js> (map-indexed vector points))))]
 
     (.. circles
 
@@ -174,14 +143,15 @@
 
         (append "circle")
         (attr "cx" (fn [[i x]] (+ pad (* x (- width (* 2 pad))))))
-        (attr "cy" (+ (/ line-height 2) pad))
-        (call #(u/a&s % (:points styles)))
+        (attr "cy" (+ (/ track-height 2) pad))
 
         (merge circles)
 
         (attr "cx"
               (fn [[i x]]
                 (+ pad (* x (- width (* 2 pad))))))
+
+        (classed "selected" (fn [[i x]] (= i (:selected @s))))
 
         (on "mousedown"
             (fn [[i _]]
@@ -192,9 +162,7 @@
         (on "mouseup"
             (fn [[i x]]
               (when (:dragged @s)
-                (dispatch-sync
-                  [:set-dragged nil]
-                  #_[:move-point (:selected @s) (mouse-scaled-value @s)]))))
+                (dispatch-sync [:set-dragged nil]))))
 
         (on "mouseenter"
             (fn [[i _]]
@@ -202,13 +170,7 @@
                 (dispatch-sync [:set-hovered i]))))
 
         (on "mouseout"
-            #(dispatch-sync [:set-hovered nil]))
-
-        (each (fn [[i _]]
-                (this-as this
-                  (.. d3
-                      (select this)
-                      (call #(u/a&s % (get-circle-styles i))))))))
+            #(dispatch-sync [:set-hovered nil])))
 
     (.. circles exit remove)
 
@@ -259,21 +221,16 @@
     :hover nil)
   s)
 
-(defn take-args [s]
-  (let [{:keys [points styles width max-points-count]}
-        (first (:rum/args s))
-        styles (u/merge-in default-styles styles)]
+(def default-args
+  {:max-points-count 100
+   :pad 10
+   :track-height 2})
 
-    (swap! (:state s)
-           (fn [s]
-             (assoc s
-               :styles styles
-               :points points
-               :width width
-               :max-points-count (or max-points-count js/Infinity)
-               :line-height (-> styles :line :attrs :height)
-               :pad (get-in styles [:line :margin]))))
-    s))
+(defn take-args [s]
+  (swap! (:state s)
+         into
+         (merge default-args (first (:rum/args s))))
+  s)
 
 (defn init-base-elements [s]
   (let [node (rum/dom-node s)
@@ -283,33 +240,32 @@
                 (append "svg"))
 
         rect (.. svg (append "rect"))
-        {:keys [pad line-height]} @(:state s)]
 
-    (aset (.-style (rum/dom-node s))
-          "height"
-          (str (+ line-height (* 2 pad)) "px"))
+        {:keys [pad track-height width]} @(:state s)
 
-    (swap! (:state s)
-           (fn [s]
-             (assoc s
-               :svg svg
-               :rect rect
-               :node node)))
+        h (+ track-height (* 2 pad))]
 
-    s))
-
-(defn apply-base-styles [s]
-  (let [{:keys [svg pad line-height width styles rect]} @(:state s)]
     (.. svg
         (attr "width" width)
-        (attr "height" (+ line-height (* 2 pad)))
-        (call #(u/a&s % (:svg styles))))
+        (attr "height" h))
 
     (.. rect
+        (attr "class" "track")
         (attr "x" pad)
         (attr "y" pad)
         (attr "width" (- width (* 2 pad)))
-        (call #(u/a&s % (:line styles))))
+        (attr "height" track-height))
+
+    (aset (.-style (rum/dom-node s))
+          "height"
+          (str h "px"))
+
+    (swap! (:state s)
+           assoc
+           :svg svg
+           :rect rect
+           :node node)
+
     s))
 
 (defn draw [s]
@@ -326,10 +282,16 @@
      :notifications notifications
      ;:before #(println %2)
      :after #(upd %1)})
+  (mixins/styled [:svg {:background "blue"}
+                  [:.track {:fill "white"}]
+                  [:circle {:r 6
+                            :fill "white"
+                            :stroke "grey"}
+                   [:&.selected {:fill "black"}]]])
   {:should-update should-update
    :will-mount #(-> % init-internal-state take-args)
-   :did-mount #(-> % init-base-elements apply-base-styles draw)
-   :will-update #(-> % take-args apply-base-styles draw)}
+   :did-mount #(-> % init-base-elements draw)
+   :will-update #(-> % take-args draw)}
   [opts]
   [:div.multislider-editor-wrap])
 
@@ -353,13 +315,18 @@
       :height 100
       :width 500})])
 
-(.clear js/console)
-(rum/mount (multislider
-             {:points [0.1 0.5 0.9]
-              :out-chan out-chan
-              :in-chan in-chan
-              :height 100
-              :width 500})
-           #_(test-ms)
-             (.getElementById js/document "app"))
+(do
+  (.clear js/console)
+  (rum/mount (multislider
+               {:points [0.1 0.5 0.9]
+                :out-chan out-chan
+                :in-chan in-chan
+                :track-height 2
+                :pad 10
+                :width 500
+                :styled [:& {:background "green"}
+                         [:svg [:circle {:stroke-width 5
+                                         :fill "red"}]]]})
+             #_(test-ms)
+             (.getElementById js/document "app")))
 

@@ -4,7 +4,8 @@
             [rum.core :as rum]
             [utils.core :as u]
             [garden.core :refer [css style]]
-            [goog.style :as gs]))
+            [goog.style :as gs]
+            [thi.ng.domus.core :as dom]))
 
 ;; styled
 ;; --------------------------------------------------------------
@@ -12,7 +13,12 @@
 (defn styled
   "simple mixin for styling components with garden"
   [& ss]
-  {:did-mount (fn [s] (gs/installStyles (apply css ss)) s)})
+  (let [uniq-class (str (gensym "styled-component-"))]
+    {:did-mount
+     (fn [s] (dom/add-class! (rum/dom-node s) uniq-class)
+       (gs/installStyles (css (into [(keyword (str "." uniq-class))]
+                                    (conj (vec ss) (:styled (first (:rum/args s)))))))
+       s)}))
 
 ;; slave
 ;; --------------------------------------------------------------

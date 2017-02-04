@@ -13,6 +13,7 @@
                  #_[cljsjs/d3 "4.3.0-1"]
                  [rum "0.10.7"]
                  [garden "1.3.2"]
+                 [thi.ng/domus "0.3.0-SNAPSHOT"]
                  [org.clojure/test.check "0.9.0"]]
   :plugins [[lein-cljsbuild "1.1.4"]
             [lein-externs "0.1.6"]]
