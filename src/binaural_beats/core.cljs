@@ -52,10 +52,10 @@
         :step 0.01}
 
        :harmonics
-       {:style (bce/simple-styles "white" "pink")}
+       {:style {}}
 
        :oscs
-       {:style (bce/simple-styles "black" "grey")}
+       {:style {}}
 
        :selected :delta
        :width 800

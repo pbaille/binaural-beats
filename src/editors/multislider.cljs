@@ -256,9 +256,9 @@
         (attr "width" (- width (* 2 pad)))
         (attr "height" track-height))
 
-    (aset (.-style (rum/dom-node s))
-          "height"
-          (str h "px"))
+    (.. d3
+        (select node)
+        (style "height" (str h "px")))
 
     (swap! (:state s)
            assoc
