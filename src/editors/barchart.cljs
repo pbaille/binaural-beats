@@ -256,19 +256,18 @@
 ;; component -------------------------------------------
 
 (def base-styles
-  [:svg {:background "lightskyblue"}
+  [:svg {:background "#FAFAFA"}
    [:.bar {:fill "grey"
            :opacity 0.2
            :transition "opacity .5s, fill .5s"}
-    [:&.hover {:fill "red"
-               :opacity 0.6}]]
+    [:&.hover {:opacity 0.6}]]
    [:.bar-control
     {:opacity 0
      :transition "all .5s"}
     [:&:hover {:opacity 1}]
     [:.insert-left
      :.insert-right
-     {:fill "purple"}]
+     {:fill "lightgrey"}]
     [:.delete
      {:fill "tomato"}]]])
 

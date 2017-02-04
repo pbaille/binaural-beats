@@ -133,19 +133,18 @@
   (let [{:keys [pos ms1-chans ms2-chans bc-chans]} (:opts s)
         p (r/react pos)
         d (r/react data)]
-    #_(println "render" p d)
     [:div.tlbchart
      (ms2/multislider
        {:points (mapv key d)
         :in-chan (:in ms1-chans)
         :out-chan (:out ms1-chans)
         :height 100
-        :width 500
-        :styles (:top ms-styles)})
+        :width 500})
      (bc/barchart-editor
        {:points (interpolate-points d p)
         :in-chan (:in bc-chans)
         :out-chan (:out bc-chans)
+        :pads {:top 0 :bottom 0 :right 10 :left 10 :inter 10}
         :width 500
         :height 150})
      (ms2/multislider
@@ -154,13 +153,12 @@
         :out-chan (:out ms2-chans)
         :height 100
         :max-points-count 1
-        :width 500
-        :styles (:bottom ms-styles)})]))
+        :width 500})]))
 
 ;; test --------------------------------------------------------------
 
 (.clear js/console)
-#_(r/mount
+(r/mount
   (editor {:pos 0.7 :data (atom [[0 [0.1 0.6 0.8]]
                                  [0.5 [0.2 0.4 0.6]]
                                  [1 [1 0.2 0.8]]])})

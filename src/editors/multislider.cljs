@@ -276,18 +276,21 @@
   (not= (comparable-args old-state)
         (comparable-args new-state)))
 
+(def base-styles
+  [:svg {:background "#FAFAFA"}
+   [:.track {:fill "lightgrey"}]
+   [:circle {:r 6
+             :fill "white"
+             :stroke "lightgrey"
+             :stroke-width 2}
+    [:&.selected {:fill "tomato"}]]])
+
 (rum/defc multislider <
   (mixins/slave
     {:actions actions
      :notifications notifications
-     ;:before #(println %2)
      :after #(upd %1)})
-  (mixins/styled [:svg {:background "blue"}
-                  [:.track {:fill "white"}]
-                  [:circle {:r 6
-                            :fill "white"
-                            :stroke "grey"}
-                   [:&.selected {:fill "black"}]]])
+  (mixins/styled base-styles)
   {:should-update should-update
    :will-mount #(-> % init-internal-state take-args)
    :did-mount #(-> % init-base-elements draw)
@@ -315,7 +318,7 @@
       :height 100
       :width 500})])
 
-(do
+#_(do
   (.clear js/console)
   (rum/mount (multislider
                {:points [0.1 0.5 0.9]
