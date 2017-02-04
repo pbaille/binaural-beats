@@ -129,8 +129,8 @@
   r/reactive
   (rm/styled styles)
   {:init init}
-  [s {:keys [data]}]
-  (let [{:keys [pos ms1-chans ms2-chans bc-chans]} (:opts s)
+  [s {:keys [width height data]}]
+  (let [{:keys [pos ms1-chans ms2-chans bc-chans ]} (:opts s)
         p (r/react pos)
         d (r/react data)]
     [:div.tlbchart
@@ -138,28 +138,26 @@
        {:points (mapv key d)
         :in-chan (:in ms1-chans)
         :out-chan (:out ms1-chans)
-        :height 100
-        :width 500})
+        :width width})
      (bc/barchart-editor
        {:points (interpolate-points d p)
         :in-chan (:in bc-chans)
         :out-chan (:out bc-chans)
         :pads {:top 0 :bottom 0 :right 10 :left 10 :inter 10}
-        :width 500
+        :width width
         :height 150})
      (ms2/multislider
        {:points [p]
         :in-chan (:in ms2-chans)
         :out-chan (:out ms2-chans)
-        :height 100
         :max-points-count 1
-        :width 500})]))
+        :width width})]))
 
 ;; test --------------------------------------------------------------
 
-(.clear js/console)
-(r/mount
-  (editor {:pos 0.7 :data (atom [[0 [0.1 0.6 0.8]]
-                                 [0.5 [0.2 0.4 0.6]]
-                                 [1 [1 0.2 0.8]]])})
-  (.getElementById js/document "app"))
+#_(do (.clear js/console)
+    (r/mount
+      (editor {:pos 0.7 :data (atom [[0 [0.1 0.6 0.8]]
+                                     [0.5 [0.2 0.4 0.6]]
+                                     [1 [1 0.2 0.8]]])})
+      (.getElementById js/document "app")))

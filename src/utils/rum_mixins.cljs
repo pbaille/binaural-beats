@@ -13,12 +13,13 @@
 (defn styled
   "simple mixin for styling components with garden"
   [& ss]
-  (let [uniq-class (str (gensym "styled-component-"))]
-    {:did-mount
-     (fn [s] (dom/add-class! (rum/dom-node s) uniq-class)
+  {:did-mount
+   (fn [s]
+     (let [uniq-class (str (gensym "styled-component-"))]
+       (dom/add-class! (rum/dom-node s) uniq-class)
        (gs/installStyles (css (into [(keyword (str "." uniq-class))]
-                                    (conj (vec ss) (:styled (first (:rum/args s)))))))
-       s)}))
+                                    (conj (vec ss) (:styled (first (:rum/args s))))))))
+     s)})
 
 ;; slave
 ;; --------------------------------------------------------------

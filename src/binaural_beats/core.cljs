@@ -26,8 +26,8 @@
        :delta [[0 4]]
        :fq [[0 200]]
        :gain [[0 0.5]]
-       :harmonics [[0 [1]] [1 [1]]]
-       :oscs [[0 [1]] [1 [1]]]}
+       :harmonics [[0 [1 0 0 0]] [1 [1 0 0 0]]]
+       :oscs [[0 [1 0 0 0]] [1 [1 0 0 0]]]}
       {:type :brown
        :gain [[0 0]]
        :pan [[0 0.5]]}]
@@ -35,19 +35,16 @@
      :tracks-settings
      [{:delta
        {:range [0 12]
-        :style (se/simple-styles "#F4B5BD" "#FD6467" "#FAEFD1")
         :bounds [0 200]
         :step 1}
 
        :fq
        {:range [60 400]
-        :style (se/simple-styles "#E1AF00" "#EBCC2A" "#f3f3f3")
         :bounds [0 10000]
         :step 1}
 
        :gain
        {:range [0 1]
-        :style (se/simple-styles "#24281A" "#FD6467" "#D5D5D3")
         :bounds [0 1]
         :step 0.01}
 
@@ -59,13 +56,11 @@
 
        :selected :delta
        :width 800
-       :height 200}
+       :height 190}
       {:pan {:range [0 1]
              :bounds [0 1]
-             :style (se/simple-styles "#E1AF00" "#EBCC2A" "#f3f3f3")
              :step 0.01}
        :gain {:range [0 1]
-              :style (se/simple-styles "#24281A" "#FD6467" "#D5D5D3")
               :bounds [0 1]
               :step 0.01}
        :selected :gain
@@ -209,5 +204,5 @@
                      :on-result #(reset! state (reader/read-string %))}]
       ]]))
 
-#_(r/render-component [main]
+(r/render-component [main]
                     (.getElementById js/document "app"))

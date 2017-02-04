@@ -1,18 +1,15 @@
-render buffer on changes only
+plus button for creating tracks
+-> track type selector
+delete track button
 
 global track time navigator
-
+action topbar
 play from specific location
 
-barchart add and remove plots boolean config
+render buffer on changes only
 
-widgets style config refinement
 
-styled component wrapper
-
-export state as edn
-
-load edn
-
+move track up down
+save track
 DB for user backup ?
 

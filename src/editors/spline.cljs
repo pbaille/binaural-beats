@@ -1,5 +1,6 @@
 (ns editors.spline
   (:require [rum.core :as rum]
+            [utils.rum-mixins :as mixins]
             [utils.core :as u :refer [d3 js>]]))
 
 ;; helpers -----------------------------------------------------
@@ -158,15 +159,14 @@
     (.. circles
         enter
         (append "circle")
+        (attr "class" "plot")
         (style "transition" "fill .5s, stroke .5s, r .5s")
 
         (merge circles)
 
         (attr "cx" (fn [x i] (aget x 0)))
         (attr "cy" (fn [x] (aget x 1)))
-        (attrs #(if (= @selected %2)
-                  (js> (get-in styles [:selected-point :attrs]))
-                  (js> (get-in styles [:points :attrs]))))
+        (classed "selected" (fn [x i] (= @selected i)))
 
         (on "mousedown"
             #(do (reset! selected %2)
@@ -205,11 +205,9 @@
                    (upd new-opts)))))))
 
 (defn format-args [s]
-  (let [{:keys [points styles width height on-change] :as opts}
+  (let [{:keys [points styles width height on-change pad] :as opts}
         (first (:rum/args s))
         styles (u/merge-in default-styles styles)
-        pad (max (get-in styles [:points :attrs :r])
-                 (get-in styles [:selected-point :attrs :r]))
         short-circuit (atom false)]
     (update s
             :opts
@@ -230,12 +228,14 @@
           :selected (atom nil)
           :hover (atom nil)))
 
-(defn init-base-elements [s]
+(defn init-base-elements [{{:keys [svg width height styles]} :opts :as s}]
   (let [node (rum/dom-node s)
 
         svg (.. d3
                 (select node)
-                (append "svg"))
+                (append "svg")
+                (attr "width" width)
+                (attr "height" height))
 
         path (.. svg
                  (append "path")
@@ -248,17 +248,6 @@
             :node node
             :path path)))
 
-(defn apply-base-styles [{{:keys [svg width height styles]} :opts :as s}]
-  (.. svg
-      (attr "width" width)
-      (attr "height" height)
-      (call #(u/a&s % (:svg styles))))
-
-  (.. svg
-      (select "path")
-      (call #(u/a&s % (:lines styles))))
-  s)
-
 (defn draw [s]
   (upd (:opts s))
   s)
@@ -270,9 +259,9 @@
 
 (rum/defc spline-editor <
   {:will-mount #(-> % format-args init-internal-state)
-   :did-mount #(-> % init-base-elements apply-base-styles draw)
+   :did-mount #(-> % init-base-elements draw)
    :should-update should-update
-   :will-update #(-> % format-args apply-base-styles draw)}
+   :will-update #(-> % format-args draw)}
   [{:keys [points on-change width height styles] :as opts}]
   [:div.spline-editor-wrap])
 
@@ -299,13 +288,30 @@
               (map #(u/scale-range % x-out-min x-out-max x-in-min x-in-max) (map first xs))
               (map #(u/scale-range % y-out-min y-out-max y-in-min y-in-max) (map second xs))))})
 
-(rum/defc spline-editor* <
+(def base-styles
+  [:svg {:background "#FAFAFA"}
+   [:.plot {:fill "white"
+            :stroke "lightgrey"
+            :stroke-width 2
+            :r 6}
+    [:&.selected {:fill "white"
+                  :stroke "tomato"
+                  :stroke-width 2
+                  :r 5}]]
+   [:.line {:stroke "lightgrey"
+            :stroke-width 2}]])
+
+(rum/defc spline-editor*
+  <
   rum/reactive
+  (mixins/styled base-styles)
   [{:keys [ranges points] :as opts}]
   (let [{:keys [>> <<]} (scale-tool {:in (rum/react ranges)
                                      :out {:x [0 1] :y [0 1]}})]
+    (println (>> (rum/react points)))
     (spline-editor
       (assoc opts
+        :pad 10
         :points (>> (rum/react points))
         :on-change #(reset! points (<< %))))))
 
@@ -321,5 +327,7 @@
   (rum/mount
     (spline-editor*
       {:ranges rs
-       :points ps})
+       :points ps
+       :height 200
+       :width 700})
     (.getElementById js/document "app")))
