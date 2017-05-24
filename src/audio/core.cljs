@@ -1,5 +1,6 @@
 (ns audio.core
   (:require [cljs-bach.synthesis :as s]
+            [audio.noises :as noises]
             [utils.core :as u]))
 
 ;; aliases --------------------------------------
@@ -115,6 +116,15 @@
 
 ;; noise nodes ---------------------------------------------
 
+(defn play-white [{:keys [ctx at duration]
+                   {:keys [gain pan]} :track}]
+  (-> (s/connect->
+        (noises/white-noise)
+        (envelop gain)
+        (pans pan)
+        s/destination)
+      (s/run-with ctx at duration)))
+
 (defn pink-noise []
   (fn [context at duration]
     (let [pinky (.createPinkNoise context)]
@@ -125,7 +135,7 @@
 (defn play-pink [{:keys [ctx at duration]
                   {:keys [gain pan]} :track}]
   (-> (s/connect->
-        (pink-noise)
+        (noises/pink-noise)
         (envelop gain)
         (pans pan)
         s/destination)
@@ -141,11 +151,25 @@
 (defn play-brown [{:keys [ctx at duration]
                    {:keys [gain pan]} :track}]
   (-> (s/connect->
-        (pink-noise)
+        (noises/brown-noise)
         (envelop gain)
         (pans pan)
         s/destination)
       (s/run-with ctx at duration)))
+
+(def ctx (s/audio-context))
+
+(comment
+  (play-pink
+    {:ctx ctx
+     :at (s/current-time ctx)
+     :duration 2
+     :track {:gain [[0 0.5]] :pan [[0 0.5]]}})
+  (play-brown
+    {:ctx ctx
+     :at (s/current-time ctx)
+     :duration 2
+     :track {:gain [[0 0.5]] :pan [[0 0.5]]}}))
 
 ;; synth --------------------------------------------------
 
@@ -275,7 +299,7 @@
 
   (s/run-with
     (s/connect->
-      (pink-noise)
+      (noises/pink-noise)
       (s/gain 0.1)
       (eq [{:fq 1000 :gain -10 :q 0.4}
            {:fq 100 :gain 10 :q 1}
@@ -343,28 +367,18 @@
                 :gain gain})
         (run-all-with ctx at dur))))
 
-(defn play-tracks [{:keys [ctx tracks decay duration]}]
-  (let [at (+ (or decay 2) (s/current-time ctx))]
+(defn play-tracks [{:keys [ctx tracks decay duration] :as options}]
+  (let [at (+ (or decay 2) (s/current-time ctx))
+        args (assoc options :at at)]
     (doseq [t tracks]
       (condp = (:type t)
         :binaural
-        (play-binaural
-          {:ctx ctx
-           :at at
-           :track t
-           :duration duration})
-        :pink
-        (play-pink
-          {:track t
-           :at at
-           :duration duration
-           :ctx ctx})
-        :brown
-        (play-pink
-          {:track t
-           :at at
-           :duration duration
-           :ctx ctx})))))
+        (play-binaural args)
+        :noise
+        (condp = (:noise-type t)
+          :white (play-white args)
+          :pink (play-pink args)
+          :brown (play-brown args))))))
 
 (defn export-buffer [{:keys [duration] :as opts}]
   (let [offline (js/OfflineAudioContext. 2 (* duration 44100) 44100)]
@@ -420,7 +434,7 @@
 
   (do
     (-> (s/connect->
-          (pink-noise)
+          (noises/pink-noise)
           (s/gain 0.2)
           s/destination)
         (s/run-with context (s/current-time context) 3))

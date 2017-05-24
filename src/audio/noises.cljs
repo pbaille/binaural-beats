@@ -36,6 +36,33 @@
         s/destination)
       (s/run-with ctx (+ 2 (s/current-time ctx)) 10)))
 
+;; white-noise ------------------------------------------------
+
+(def white-buffer (atom nil))
+
+(def white-data
+  (let [noise-data (js/Float32Array. length)]
+    (loop [last-out 0 idx 0]
+      (when (< idx length)
+        (let [v (-> (rand) (* 2) (- 1))]
+          (aset noise-data idx v)
+          (recur v (inc idx)))))
+    noise-data))
+
+(defn white-noise []
+  (fn [ctx at duration]
+    (when-not @white-buffer
+      (reset! white-buffer
+              (doto (.createBuffer ctx 1 length (.-sampleRate ctx))
+                (-> (.getChannelData 0) (.set white-data)))))
+    (let [whitey (doto (.createBufferSource ctx)
+                   (-> .-buffer (set! @white-buffer))
+                   (-> .-loop (set! true)))]
+
+      (.start whitey at)
+      (.stop whitey (+ duration at))
+      (s/source whitey))))
+
 ;; brown noise ------------------------------------------------
 
 (def brown-buffer (atom nil))
@@ -119,7 +146,17 @@
   (defonce ctx (s/audio-context))
   (js/console.log pink-data)
   (-> (s/connect->
+        (white-noise)
+        (s/gain 0.5)
+        s/destination)
+      (s/run-with ctx (+ 2 (s/current-time ctx)) 3))
+  (-> (s/connect->
         (pink-noise)
+        (s/gain 0.5)
+        s/destination)
+      (s/run-with ctx (+ 2 (s/current-time ctx)) 3))
+  (-> (s/connect->
+        (brown-noise)
         (s/gain 0.5)
         s/destination)
       (s/run-with ctx (+ 2 (s/current-time ctx)) 3)))

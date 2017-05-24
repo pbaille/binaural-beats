@@ -18,7 +18,7 @@
   (atom
     {:name "BinBits"
      :assets {}
-     :duration 10
+     :duration 3
      :max-duration 10000
      :duration-step 1
      :tracks
@@ -28,7 +28,8 @@
        :gain [[0 0.5]]
        :harmonics [[0 [1 0 0 0]] [1 [1 0 0 0]]]
        :oscs [[0 [1 0 0 0]] [1 [1 0 0 0]]]}
-      {:type :brown
+      {:type :noise
+       :noise-type :brown
        :gain [[0 0]]
        :pan [[0 0.5]]}]
 
@@ -82,7 +83,12 @@
                           (assoc x :duration maxx))})
         spline-editor? (reaction (#{:delta :fq :gain} @selected))
         tbchart-editor? (reaction (#{:harmonics :oscs} @selected))]
+
     (fn []
+
+      (println "spline? " @spline-editor?)
+      (println "tb? " @tbchart-editor?)
+
       [:div.multi-spline
        [:select {:value (name @selected)
                  :on-change #(reset! selected (keyword (u/tval %)))}
@@ -133,6 +139,7 @@
         width (reaction (:width @settings))
         height (reaction (:height @settings))
         selected-settings (reaction (get @settings @selected))
+        noise-type (reaction (:noise-type @track))
         style (reaction (:style @selected-settings))
         ranges (u/rwrap
                  (fn []
@@ -146,6 +153,10 @@
        [:select {:value (name @selected)
                  :on-change #(reset! selected (keyword (u/tval %)))}
         (for [s [:gain :pan]]
+          [:option {:key s :value (name s)} (name s)])]
+       [:select {:value (name @noise-type)
+                 :on-change #(swap! track assoc :noise-type (keyword (u/tval %)))}
+        (for [s [:pink :brown :white]]
           [:option {:key s :value (name s)} (name s)])]
 
        [se/spline-editor*
@@ -169,7 +180,7 @@
          [binaural-editor
           {:track (r/cursor state [:tracks idx])
            :settings (r/cursor state [:tracks-settings idx])}]
-         :brown
+         :noise
          ^{:key idx}
          [noise-editor
           {:track (r/cursor state [:tracks idx])

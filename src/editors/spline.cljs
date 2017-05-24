@@ -145,6 +145,9 @@
               (conj ps [width (second (last ps))])
               (cons [0 (second (first ps))] ps))
 
+        _ (println "scaled-points" scaled-points)
+        _ (println "line-points" line-points)
+
         circles
         (.. svg
             (selectAll "circle")
@@ -306,6 +309,7 @@
   rum/reactive
   (mixins/styled base-styles)
   [{:keys [ranges points] :as opts}]
+  (println @ranges)
   (let [{:keys [>> <<]} (scale-tool {:in (rum/react ranges)
                                      :out {:x [0 1] :y [0 1]}})]
     (println (>> (rum/react points)))

@@ -37,7 +37,8 @@
         bc-out (chan)
         pos* (atom (or (-> s :rum/args first :pos) 0))
         data* (-> s :rum/args first :data)
-        selected* (atom (-> s :rum/args first :selected))
+        _ (println "initial selection: " (or (-> s :rum/args first :selected) 0))
+        selected* (atom (or (-> s :rum/args first :selected) 0))
         s (update s
                   :opts
                   assoc
@@ -52,7 +53,7 @@
 
     (go-loop []
              (let [[v & [a1 a2 a3 :as args] :as m] (<! ms1-out)]
-               #_(println "ms1: " m)
+               (println "ms1: " m)
                (condp = v
                  :selected-point
                  (do (reset! selected* a2)
@@ -61,6 +62,9 @@
 
                  :added-point
                  (swap! data* (fn [d] (conj d [a2 (interpolate-points d a2)])))
+
+                 :removed-point
+                 (swap! data* u/rem-idx a2)
 
                  :dragged-point
                  (do (swap! data* assoc-in [a2 0] a3)
@@ -71,7 +75,7 @@
 
     (go-loop []
              (let [[v & [a1 a2 a3 :as args] :as m] (<! ms2-out)]
-               #_(println "ms2: " m)
+               (println "ms2: " m)
                (condp = v
                  ;when ms2 selection, unselect ms1
                  :selected-point
@@ -79,7 +83,8 @@
 
                  ;when ms2 moved,
                  :dragged-point
-                 (do (reset! pos* a3)
+                 (do (reset! selected* nil)
+                     (reset! pos* a3)
                      (>! bc-in [[:set-points (interpolate-points @data* @pos*)]]))
 
                  :moved-point
@@ -91,6 +96,7 @@
 
     (go-loop []
              (let [[v & [a1 a2 a3 :as args] :as m] (<! bc-out)]
+               (println "bc: " m)
                (condp = v
 
                  :point-added
@@ -103,7 +109,11 @@
                  (when-not a2
                    (if @selected*
                      (swap! data* assoc-in [@selected* 1] a1)
-                     (swap! data* conj [@pos* a1])))
+                     (do
+                       ;; add new data point
+                       (swap! data* conj [@pos* a1])
+                       ;; select new data point
+                       (reset! selected* (u/index-of (map first @data*) @pos*)))))
                  nil)
                (recur)))
     s))
@@ -130,7 +140,7 @@
   (rm/styled styles)
   {:init init}
   [s {:keys [width height data]}]
-  (let [{:keys [pos ms1-chans ms2-chans bc-chans ]} (:opts s)
+  (let [{:keys [pos ms1-chans ms2-chans bc-chans]} (:opts s)
         p (r/react pos)
         d (r/react data)]
     [:div.tlbchart
@@ -155,9 +165,9 @@
 
 ;; test --------------------------------------------------------------
 
-#_(do (.clear js/console)
+(do (.clear js/console)
     (r/mount
-      (editor {:pos 0.7 :data (atom [[0 [0.1 0.6 0.8]]
-                                     [0.5 [0.2 0.4 0.6]]
-                                     [1 [1 0.2 0.8]]])})
+      (editor {:data (atom [[0 [1 0 0 0]] [1 [1 0 0 0]]])
+               :width 800
+               :height 300})
       (.getElementById js/document "app")))

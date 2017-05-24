@@ -195,6 +195,7 @@
 
         (on "mouseup"
             (fn []
+              (println "mulslider mouseup")
               (.. svg (style "cursor" "inherit"))))
 
         (on "mousemove"
